@@ -9,6 +9,7 @@ import os
 import sys
 import json
 import pickle
+import time
 from glob import glob
 
 from tensorboardX import SummaryWriter
@@ -57,7 +58,8 @@ class MultiTaskTrain:
 											 momentum=optimizer_params["momentum"])
 		elif optimizer_params["optimizer"] == MultiTaskTrain.OPTIMIZER_ADAM:
 			self.optimizer = torch.optim.Adam(parameters_to_optimize, 
-											  lr=optimizer_params["lr"])
+											  lr=optimizer_params["lr"],
+											  weight_decay=optimizer_params["weight_decay"])
 		else:
 			print("[!] ERROR: Unknown optimizer: " + str(optimizer_params["optimizer"]))
 			sys.exit(1)
@@ -102,6 +104,8 @@ class MultiTaskTrain:
 				for name, param in t.classifier.named_parameters():
 					writer.add_histogram(t.name+"/"+name, param.data.view(-1), global_step=iteration)
 		
+		time_per_step = np.zeros((2,), dtype=np.float32)
+
 		if start_iter == 0:
 			export_weight_parameters(0)
 		# Try-catch if user terminates
@@ -112,21 +116,28 @@ class MultiTaskTrain:
 			for index_iter in range(start_iter, int(max_iterations)):
 				
 				# Training step
+				start_time = time.time()
 				self.lr_scheduler.step()
 				loss = self.multitask_sampler.sample_batch_loss(index_iter)
 				self.model.zero_grad()
 				loss.backward()
 				self.optimizer.step()
+				end_time = time.time()
+				time_per_step[0] += end_time - start_time
+				time_per_step[1] += 1
 
 				# Debug loss printing
 				if (index_iter + 1) % loss_freq == 0:
-					loss_avg = self.multitask_sampler.get_average_losses()
+					loss_avg, acc_avg = self.multitask_sampler.get_average_metrics()
 					print("Training iteration %i|%i. Loss: %6.5f" % (index_iter+1, max_iterations, loss_avg[0]))
 					if writer is not None:
 						writer.add_scalar("train/loss/all_combined", loss_avg[0], index_iter + 1)
 						for task_ind, t in enumerate(self.tasks):
 							writer.add_scalar("train/loss/"+t.name, loss_avg[task_ind + 1], index_iter + 1)
+							writer.add_scalar("train/accuracy/"+t.name, acc_avg[task_ind + 1], index_iter + 1)
 						writer.add_scalar("train/learning_rate", self.optimizer.param_groups[0]['lr'], index_iter+1)
+						writer.add_scalar("train/training_time", time_per_step[0] / max(1e-5, time_per_step[1]), index_iter+1)
+					time_per_step[:] = 0
 					self.multitask_sampler.reset_loss_counter()
 
 				# Evaluation
@@ -137,7 +148,7 @@ class MultiTaskTrain:
 
 					if writer is not None:
 						write_dict_to_tensorboard(writer, evaluation_dict[index_iter+1], base_name="eval", iteration=index_iter+1)
-						export_weight_parameters(index_iter)
+						export_weight_parameters(index_iter+1)
 
 				# Saving
 				if (index_iter + 1) % save_freq == 0:
@@ -207,13 +218,14 @@ if __name__ == '__main__':
 	parser.add_argument("--seed", help="Seed to make experiments reproducable", type=int, default=42)
 	parser.add_argument("--cluster", help="Enable option if code is executed on cluster. Reduces output size", action="store_true")
 	parser.add_argument("-d", "--debug", help="Whether debug output should be activated or not", action="store_true")
-	# Multitask training
+	# Tasks
 	parser.add_argument("--task_SNLI", help="Frequency with which the task SNLI should be used. Default: 0 (not used at all)", type=int, default=0)
+	parser.add_argument("--task_POS", help="Frequency with which the task POS tagging should be used. Default: 0 (not used at all)", type=int, default=0)
 	parser.add_argument("--task_VUMetaphor", help="Frequency with which the task VUMetaphor should be used. Default: 0 (not used at all)", type=int, default=0)
+	# Multitask training
 	parser.add_argument("--multi_epoch_size", help="Size of epoch for which the batch indices are shuffled", type=int, default=1e3)
 	parser.add_argument("--multi_batchwise", help="Whether the multi-task learning should be done per batch, or the elements within a batch come from multiple tasks", action="store_true")
 	parser.add_argument("--anti_curriculum_learning", help="If enabled, hard tasks will be trained for a couple of iterations before \"easy\" tasks are added.", action="store_true")
-	
 	# Optimizer parameters
 	parser.add_argument("--learning_rate", help="Learning rate of the optimizer", type=float, default=0.1)
 	parser.add_argument("--lr_decay", help="Decay of learning rate of the optimizer. Always applied if eval accuracy droped compared to mean of last two epochs", type=float, default=0.2)

@@ -43,13 +43,13 @@ class MultiTaskEncoder(nn.Module):
 			sys.exit(1)
 
 
-	def forward(self, words, lengths, dummy_input=False, debug=False):
-		return self.encode_sentence(words, lengths, dummy_input=dummy_input, debug=debug)
+	def forward(self, words, lengths, debug=False):
+		return self.encode_sentence(words, lengths, debug=debug)
 
 
-	def encode_sentence(self, words, lengths, dummy_input=False, debug=False):
+	def encode_sentence(self, words, lengths, word_level=False, debug=False):
 		word_embeds = self.embeddings(words)
-		sent_embeds = self.encoder(word_embeds, lengths, dummy_input=dummy_input, debug=debug)
+		sent_embeds = self.encoder(word_embeds, lengths, word_level=word_level)
 		return sent_embeds
 
 
@@ -61,7 +61,7 @@ class NLIClassifier(nn.Module):
 		embed_sent_dim = model_params["embed_sent_dim"]
 		fc_dropout = model_params["fc_dropout"] 
 		fc_dim = model_params["fc_dim"]
-		n_classes = model_params["n_classes"]
+		n_classes = model_params["nli_classes"]
 
 		input_dim = 4 * embed_sent_dim
 		if model_params["fc_nonlinear"]:
@@ -91,6 +91,31 @@ class NLIClassifier(nn.Module):
 		
 		return out
 
+
+class SimpleClassifier(nn.Module):
+
+	def __init__(self, model_params, num_classes):
+		super(NLIClassifier, self).__init__()
+		embed_sent_dim = model_params["embed_sent_dim"]
+		fc_dropout = model_params["fc_dropout"] 
+		fc_dim = model_params["fc_dim"]
+
+		input_dim = embed_sent_dim
+		self.classifier = nn.Sequential(
+			nn.Dropout(p=fc_dropout),
+			nn.Linear(input_dim, fc_dim),
+			nn.ReLU(),
+			nn.Linear(fc_dim, num_classes)
+		)
+		self.softmax_layer = nn.Softmax(dim=-1)
+
+
+	def forward(self, input_features, applySoftmax=False):
+		out = self.classifier(input_features)
+		if applySoftmax:
+			out = self.softmax_layer(out)
+		return out
+
 ####################
 ## ENCODER MODELS ##
 ####################
@@ -100,7 +125,7 @@ class EncoderModule(nn.Module):
 	def __init__(self):
 		super(EncoderModule, self).__init__()
 
-	def forward(self, embed_words, lengths, dummy_input=False, debug=False):
+	def forward(self, embed_words, lengths, word_level=False, debug=False):
 		raise NotImplementedError
 
 
@@ -109,13 +134,16 @@ class EncoderBOW(EncoderModule):
 	def __init__(self):
 		super(EncoderBOW, self).__init__()
 
-	def forward(self, embed_words, lengths, dummy_input=False, debug=False):
+	def forward(self, embed_words, lengths, word_level=False, debug=False):
 		# Embeds are of shape [batch, time, embed_dim]
 		# Lengths is of shape [batch]
-		word_positions = torch.arange(start=0, end=embed_words.shape[1], dtype=lengths.dtype, device=embed_words.device)
-		mask = (word_positions.reshape(shape=[1, -1, 1]) < lengths.reshape([-1, 1, 1])).float()
-		out = torch.sum(mask * embed_words, dim=1) / lengths.reshape([-1, 1]).float()
-		return out
+		if not word_level:
+			word_positions = torch.arange(start=0, end=embed_words.shape[1], dtype=lengths.dtype, device=embed_words.device)
+			mask = (word_positions.reshape(shape=[1, -1, 1]) < lengths.reshape([-1, 1, 1])).float()
+			out = torch.sum(mask * embed_words, dim=1) / lengths.reshape([-1, 1]).float()
+			return out
+		else:
+			return embed_words
 
 
 class EncoderLSTM(EncoderModule):
@@ -125,9 +153,12 @@ class EncoderLSTM(EncoderModule):
 		self.lstm_chain = PyTorchLSTMChain(input_size=model_params["embed_word_dim"], 
 									hidden_size=model_params["embed_sent_dim"])
 
-	def forward(self, embed_words, lengths, dummy_input=False, debug=False):
-		final_states, _ = self.lstm_chain(embed_words, lengths, dummy_input=dummy_input)
-		return final_states
+	def forward(self, embed_words, lengths, word_level=False, debug=False):
+		final_states, word_outputs = self.lstm_chain(embed_words, lengths)
+		if not word_level:
+			return final_states
+		else:
+			return word_outputs
 
 
 class EncoderBILSTM(EncoderModule):
@@ -138,10 +169,13 @@ class EncoderBILSTM(EncoderModule):
 										   hidden_size=int(model_params["embed_sent_dim"]/2),
 										   bidirectional=True)
 
-	def forward(self, embed_words, lengths, dummy_input=False, debug=False):
+	def forward(self, embed_words, lengths, word_level=False, debug=False):
 		# embed words is of shape [batch_size, time, word_dim]
-		final_states, _ = self.lstm_chain(embed_words, lengths, dummy_input=dummy_input)
-		return final_states
+		final_states, word_outputs = self.lstm_chain(embed_words, lengths)
+		if not word_level:
+			return final_states
+		else:
+			return word_outputs
 
 
 class EncoderBILSTMPool(EncoderModule):
@@ -152,15 +186,18 @@ class EncoderBILSTMPool(EncoderModule):
 										   hidden_size=int(model_params["embed_sent_dim"]/2),
 										   bidirectional=True)
 
-	def forward(self, embed_words, lengths, dummy_input=False, debug=False):
+	def forward(self, embed_words, lengths, word_level=False, debug=False):
 		# embed words is of shape [batch_size * 2, time, word_dim]
-		_, outputs = self.lstm_chain(embed_words, lengths, dummy_input=dummy_input)
-		# Max time pooling
-		pooled_features, pool_indices = EncoderBILSTMPool.pool_over_time(outputs, lengths)
-		if debug:
-			return pooled_features, pool_indices
+		_, word_outputs = self.lstm_chain(embed_words, lengths)
+		if not word_level:
+			# Max time pooling
+			pooled_features, pool_indices = EncoderBILSTMPool.pool_over_time(word_outputs, lengths)
+			if debug:
+				return pooled_features, pool_indices
+			else:
+				return pooled_features
 		else:
-			return pooled_features
+			return word_outputs
 
 	@staticmethod
 	def pool_over_time(outputs, lengths):

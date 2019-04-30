@@ -7,7 +7,7 @@ from random import shuffle
 import os
 import sys
 
-from model import NLIClassifier
+from model import NLIClassifier, SimpleClassifier
 from data import load_SNLI_datasets, debug_level
 
 
@@ -30,7 +30,7 @@ class TaskTemplate:
 
 
 	def train_step(self, batch_size, loop_dataset=True):
-		# Function to perform single step given the batch size; returns the loss
+		# Function to perform single step given the batch size; returns the loss and the accuracy of the batch
 		raise NotImplementedError
 
 
@@ -141,7 +141,7 @@ class MultiTaskSampler:
 		shuffle(self.batch_list)
 
 		# For keeping track of 
-		self.loss_counters = np.zeros((len(self.tasks) + 1, 2), dtype=np.float32)
+		self.loss_counters = np.zeros((len(self.tasks) + 1, 3), dtype=np.float32)
 
 
 	def _get_next_batch_index(self):
@@ -157,8 +157,8 @@ class MultiTaskSampler:
 
 		if self.separate_batches:
 			task_index = self._get_next_batch_index()
-			loss = self.tasks[task_index].train_step(self.batch_size)
-			self._add_loss_to_record(task_index, loss, 1)
+			loss, acc = self.tasks[task_index].train_step(self.batch_size)
+			self._add_loss_to_record(task_index, loss, 1, acc=acc)
 		else:
 			loss = 0
 			batch_indices = [self._get_next_batch_index() for _ in range(self.batch_size)]
@@ -168,9 +168,10 @@ class MultiTaskSampler:
 					continue
 
 				task_weight = (task_batch_size * 1.0 / self.batch_size)
-				task_loss = t.train_step(int(task_batch_size)) * task_weight
+				task_loss, task_acc = t.train_step(int(task_batch_size))
+				task_loss = task_loss * task_weight
 				loss += task_loss
-				self._add_loss_to_record(task_index, task_loss, task_weight)
+				self._add_loss_to_record(task_index, task_loss, task_weight, acc=task_acc)
 
 		self._add_loss_to_record(-1, loss, 1)
 
@@ -187,14 +188,17 @@ class MultiTaskSampler:
 		return accuracy_dict
 
 
-	def _add_loss_to_record(self, task_index, loss, weight):
+	def _add_loss_to_record(self, task_index, loss, weight, acc=None):
 		self.loss_counters[task_index + 1, 0] += loss.item()
 		self.loss_counters[task_index + 1, 1] += weight 
+		if acc is not None:
+			self.loss_counters[task_index + 1, 2] += acc.item()
 
 
-	def get_average_losses(self):
+	def get_average_metrics(self):
 		loss_avg = self.loss_counters[:,0] / np.maximum(self.loss_counters[:,1], 1e-5)
-		return loss_avg[0], loss_avg[1:]
+		acc_avg = self.loss_counters[:,2] / np.maximum(self.loss_counters[:,1], 1e-5)
+		return loss_avg, acc_avg
 
 
 	def reset_loss_counter(self):
@@ -231,20 +235,24 @@ class SNLITask(TaskTemplate):
 		
 		embeds, lengths, batch_labels = self.train_dataset.get_batch(batch_size, loop_dataset=loop_dataset, toTorch=True)
 		
-		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0], dummy_input=False)
-		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1], dummy_input=False)
+		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0])
+		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1])
 
 		out = self.classifier(embed_s1, embed_s2, applySoftmax=False)
 
 		loss = self.loss_module(out, batch_labels)
-		return loss
+
+		_, pred_labels = torch.max(out, dim=-1)
+		acc = torch.sum(pred_labels == batch_labels).float() / pred_labels.shape[-1]
+
+		return loss, acc
 
 
 	def _eval_batch(self, batch):
 		embeds, lengths, batch_labels = batch
 		
-		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0], dummy_input=False)
-		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1], dummy_input=False)
+		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0])
+		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1])
 
 		preds = self.classifier(embed_s1, embed_s2, applySoftmax=True)
 		
@@ -252,3 +260,50 @@ class SNLITask(TaskTemplate):
 		
 		return pred_labels, batch_labels
 			
+
+# class POSTask(TaskTemplate):
+
+# 	NAME = "POS_Tagging"
+
+# 	def __init__(self, model, classifier_params, load_data=True):
+# 		super(SNLITask, self).__init__(model=model, load_data=load_data, name=SNLITask.NAME)
+# 		self.classifier = SimpleClassifier(classifier_params, 10)
+# 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
+# 		if torch.cuda.is_available():
+# 			self.classifier = self.classifier.cuda()
+# 			self.loss_module = self.loss_module.cuda()
+
+
+# 	def _load_datasets(self):
+# 		self.train_dataset, self.val_dataset, self.test_dataset, _, _, _ = load_SNLI_datasets()
+
+
+# 	def train_step(self, batch_size, loop_dataset=True):
+# 		assert self.train_dataset is not None, "[!] ERROR: Training dataset not loaded. Please load the dataset beforehand for training."
+		
+# 		embeds, lengths, batch_labels = self.train_dataset.get_batch(batch_size, loop_dataset=loop_dataset, toTorch=True)
+		
+# 		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0])
+# 		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1])
+
+# 		out = self.classifier(embed_s1, embed_s2, applySoftmax=False)
+
+# 		loss = self.loss_module(out, batch_labels)
+
+# 		_, pred_labels = torch.max(out, dim=-1)
+# 		acc = torch.sum(pred_labels == batch_labels) / pred_labels.shape[-1]
+
+# 		return loss, acc
+
+
+# 	def _eval_batch(self, batch):
+# 		embeds, lengths, batch_labels = batch
+		
+# 		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0])
+# 		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1])
+
+# 		preds = self.classifier(embed_s1, embed_s2, applySoftmax=True)
+		
+# 		_, pred_labels = torch.max(preds, dim=-1)
+		
+# 		return pred_labels, batch_labels

@@ -94,7 +94,7 @@ def args_to_params(args):
 		"fc_dropout": args.fc_dropout, 
 		"fc_dim": args.fc_dim,
 		"fc_nonlinear": args.fc_nonlinear,
-		"n_classes": 3
+		"nli_classes": 3
 	}
 	if args.model == MultiTaskEncoder.AVERAGE_WORD_VECS:
 		model_params["embed_sent_dim"] = 300
