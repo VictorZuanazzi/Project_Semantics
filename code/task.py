@@ -1,15 +1,14 @@
 import torch 
 import torch.nn as nn
 import argparse
-import torch
-import torch.nn as nn
 import numpy as np
+import math
 from random import shuffle
 import os
 import sys
 
 from model import NLIClassifier
-from data import load_SNLI_datasets
+from data import load_SNLI_datasets, debug_level
 
 
 class TaskTemplate:
@@ -46,9 +45,10 @@ class TaskTemplate:
 			dataset = self.val_dataset
 
 		self.model.eval()
+		self.classifier.eval()
 		# Prepare metrics
 		number_batches = int(math.ceil(dataset.get_num_examples() * 1.0 / batch_size))
-		correct_preds = []
+		label_list = []
 		preds_list = []
 
 		# Evaluation loop
@@ -81,8 +81,10 @@ class TaskTemplate:
 			precision = TP * 1.0 / (TP + FP)
 			F1_score = 2.0 * TP / (2 * TP + FP + FN)
 			print("\t- Class %s: Recall=%4.2f%%, Precision=%4.2f%%, F1 score=%4.2f%%" % (dataset.label_to_string(c), recall, precision, F1_score))
-			detailed_acc["class_scores"][c] = {"recall": recall, "precision": precision, "f1": F1_score}
+			detailed_acc["class_scores"][dataset.label_to_string(c)] = {"recall": recall, "precision": precision, "f1": F1_score}
 		print("-"*75)
+
+		self.classifier.train()
 		
 		return accuracy, detailed_acc
 
@@ -99,6 +101,10 @@ class TaskTemplate:
 			self.classifier.load_state_dict(checkpoint_dict[self.name + "_classifier"])
 		else:
 			print("[%] WARNING: State dict to load was passed without a entry for the classifier. Task: " + self.name)
+
+
+	def get_parameters(self):
+		return self.classifier.parameters()
 
 
 	@staticmethod
@@ -217,7 +223,7 @@ class SNLITask(TaskTemplate):
 
 
 	def _load_datasets(self):
-		self.train_dataset, self.eval_dataset, self.test_dataset, _, _, _ = load_SNLI_datasets(debug_dataset=True)
+		self.train_dataset, self.val_dataset, self.test_dataset, _, _, _ = load_SNLI_datasets()
 
 
 	def train_step(self, batch_size, loop_dataset=True):
@@ -236,7 +242,13 @@ class SNLITask(TaskTemplate):
 
 	def _eval_batch(self, batch):
 		embeds, lengths, batch_labels = batch
-		preds = self.model(words_s1 = embeds[0], lengths_s1 = lengths[0], words_s2 = embeds[1], lengths_s2 = lengths[1], applySoftmax=True)
+		
+		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0], dummy_input=False)
+		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1], dummy_input=False)
+
+		preds = self.classifier(embed_s1, embed_s2, applySoftmax=True)
+		
 		_, pred_labels = torch.max(preds, dim=-1)
+		
 		return pred_labels, batch_labels
 			

@@ -46,13 +46,17 @@ class MultiTaskTrain:
 		
 
 	def _create_optimizer(self, optimizer_params):
+		parameters_to_optimize = list(self.model.parameters())
+		for t in self.tasks:
+			parameters_to_optimize += list(t.get_parameters())
+
 		if optimizer_params["optimizer"] == MultiTaskTrain.OPTIMIZER_SGD:
-			self.optimizer = torch.optim.SGD(self.model.parameters(), 
+			self.optimizer = torch.optim.SGD(parameters_to_optimize, 
 											 lr=optimizer_params["lr"], 
 											 weight_decay=optimizer_params["weight_decay"],
 											 momentum=optimizer_params["momentum"])
 		elif optimizer_params["optimizer"] == MultiTaskTrain.OPTIMIZER_ADAM:
-			self.optimizer = torch.optim.Adam(self.model.parameters(), 
+			self.optimizer = torch.optim.Adam(parameters_to_optimize, 
 											  lr=optimizer_params["lr"])
 		else:
 			print("[!] ERROR: Unknown optimizer: " + str(optimizer_params["optimizer"]))
@@ -89,7 +93,17 @@ class MultiTaskTrain:
 				"iteration": iteration
 			}
 			self.save_model(iteration, checkpoint_dict)
+
+		def export_weight_parameters(iteration):
+			# Export weight distributions
+			for name, param in self.model.named_parameters():
+				writer.add_histogram(name, param.data.view(-1), global_step=iteration)
+			for t in self.tasks:
+				for name, param in t.classifier.named_parameters():
+					writer.add_histogram(t.name+"/"+name, param.data.view(-1), global_step=iteration)
 		
+		if start_iter == 0:
+			export_weight_parameters(0)
 		# Try-catch if user terminates
 		try:
 			print("="*50 + "\nStarting training...\n"+"="*50)
@@ -122,13 +136,8 @@ class MultiTaskTrain:
 					self.model.train()
 
 					if writer is not None:
-						write_dict_to_tensorboard(writer, evaluation_dict[index_iter], iteration=index_iter+1)
-						# Export weight distributions
-						for name, param in self.model.named_parameters():
-							writer.add_histogram(name, param.data.view(-1))
-						for t in self.tasks:
-							for name, param in t.classifier.named_parameters():
-								writer.add_histogram(t.name+"/"+name, param.data.view(-1))
+						write_dict_to_tensorboard(writer, evaluation_dict[index_iter+1], base_name="eval", iteration=index_iter+1)
+						export_weight_parameters(index_iter)
 
 				# Saving
 				if (index_iter + 1) % save_freq == 0:

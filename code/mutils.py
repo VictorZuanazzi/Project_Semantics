@@ -177,7 +177,13 @@ def write_dict_to_tensorboard(writer, val_dict, base_name, iteration):
 	for name, val in val_dict.items():
 		if isinstance(val, dict):
 			write_dict_to_tensorboard(writer, val, base_name=base_name+"/"+name, iteration=iteration)
-		writer.add_scalar(base_name + "/" + name, val, iteration)
+		elif isinstance(val, list):
+			continue
+		elif isinstance(val, (int, float)):
+			writer.add_scalar(base_name + "/" + name, val, iteration)
+		else:
+			if debug_level() == 0:
+				print("Skipping output \""+str(name) + "\" of value " + str(val))
 
 
 ########################
