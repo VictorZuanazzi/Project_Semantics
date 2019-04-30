@@ -17,11 +17,17 @@ import scipy
 from glob import glob
 from shutil import copyfile
 
-from model import NLIModel
+from model import MultiTaskEncoder
 from data import load_SNLI_datasets, debug_level, set_debug_level, DatasetTemplate, SentData
+from task import SNLITask
 
 PARAM_CONFIG_FILE = "param_config.pik"
 
+
+
+###################
+## MODEL LOADING ##
+###################
 
 def load_model(checkpoint_path, model=None, optimizer=None, lr_scheduler=None, load_best_model=False):
 	if os.path.isdir(checkpoint_path):
@@ -58,13 +64,15 @@ def load_model(checkpoint_path, model=None, optimizer=None, lr_scheduler=None, l
 			add_param_dict[key] = val
 	return add_param_dict
 
+
 def load_model_from_args(args, checkpoint_path=None, load_best_model=False):
 	model_type, model_params, optimizer_params = args_to_params(args)
 	_, _, _, _, _, wordvec_tensor = load_SNLI_datasets(debug_dataset = False)
-	model = NLIModel(model_type, model_params, wordvec_tensor)
+	model = MultiTaskEncoder(model_type, model_params, wordvec_tensor)
 	if checkpoint_path is not None:
 		load_model(checkpoint_path, model=model, load_best_model=load_best_model)
 	return model
+
 
 def load_args(checkpoint_path):
 	if os.path.isfile(checkpoint_path):
@@ -88,16 +96,30 @@ def args_to_params(args):
 		"fc_nonlinear": args.fc_nonlinear,
 		"n_classes": 3
 	}
-	if args.model == NLIModel.AVERAGE_WORD_VECS:
+	if args.model == MultiTaskEncoder.AVERAGE_WORD_VECS:
 		model_params["embed_sent_dim"] = 300
 
 	optimizer_params = {
 		"optimizer": args.optimizer,
 		"lr": args.learning_rate,
 		"weight_decay": args.weight_decay,
-		"lr_decay_step": args.lr_decay,
+		"lr_decay_factor": args.lr_decay,
+		"lr_decay_step": args.lr_decay_step,
 		"lr_max_red_steps": args.lr_max_red_steps,
 		"momentum": args.momentum if hasattr(args, "momentum") else 0.0
+	}
+
+	task_freq_dict = {}
+	if args.task_SNLI > 0:
+		task_freq_dict[SNLITask.NAME] = args.task_SNLI
+
+	tasks = sorted(list(task_freq_dict.keys()))
+
+	multitask_params = {
+		"epoch_size": args.multi_epoch_size,
+		"batchwise": args.multi_batchwise,
+		"anti_curriculum_learning": args.anti_curriculum_learning,
+		"freq": task_freq_dict
 	}
 
 	# Set seed
@@ -109,13 +131,20 @@ def args_to_params(args):
 	torch.backends.cudnn.deterministic = True
 	torch.backends.cudnn.benchmark = False	
 
-	return args.model, model_params, optimizer_params
+	return tasks, args.model, model_params, optimizer_params, multitask_params
+
 
 def get_dict_val(checkpoint_dict, key, default_val):
 	if key in checkpoint_dict:
 		return checkpoint_dict[key]
 	else:
 		return default_val
+
+
+
+####################################
+## VISUALIZATION WITH TENSORBOARD ##
+####################################
 
 def visualize_tSNE(model, dataset, tensorboard_writer, batch_size=64, embedding_name='default', global_step=None, add_reduced_version=False):
 	if add_reduced_version:
@@ -143,6 +172,17 @@ def visualize_tSNE(model, dataset, tensorboard_writer, batch_size=64, embedding_
 	final_labels = [dataset.label_to_string(lab) for lab in final_labels]
 	tensorboard_writer.add_embedding(final_embeddings, metadata=final_labels, tag=embedding_name, global_step=global_step)
 
+
+def write_dict_to_tensorboard(writer, val_dict, base_name, iteration):
+	for name, val in val_dict.items():
+		if isinstance(val, dict):
+			write_dict_to_tensorboard(writer, val, base_name=base_name+"/"+name, iteration=iteration)
+		writer.add_scalar(base_name + "/" + name, val, iteration)
+
+
+########################
+## SENT EVAL DATASETS ##
+########################
 
 # Function copied from SentEval for reproducibility
 def loadFile(fpath):
@@ -207,6 +247,11 @@ def get_transfer_datasets():
 	transfer_datasets["TREC_short"] = task_to_dataset(trec_short_sentences, trec_labels, label_dict=tgt2idx)
 
 	return transfer_datasets
+
+
+#######################
+## RESULTS TO REPORT ##
+#######################
 
 def copy_results():
 	checkpoint_folder = sorted(glob("checkpoints/*"))

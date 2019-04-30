@@ -64,20 +64,30 @@ def build_vocab(word_list, glove_path='../glove.840B.300d.txt'):
 
 	return word2vec
 
-def load_word2vec_from_file(word_file="small_glove_words.txt", numpy_file="small_glove_embed.npy"):
-	word2vec = dict()
-	word2id = dict()
-	word_vecs = np.load(numpy_file)
-	with open(word_file, "r") as f:
-		for i, l in enumerate(f):
-			word2vec[l.replace("\n","")] = word_vecs[i,:]
-	index = 0
-	for key, _ in word2vec.items():
-		word2id[key] = index
-		index += 1
+WORD2VEC_DICT = None
+WORD2ID_DICT = None
+WORDVEC_TENSOR = None
 
-	print("Loaded vocabulary of size " + str(word_vecs.shape[0]))
-	return word2vec, word2id, word_vecs
+def load_word2vec_from_file(word_file="small_glove_words.txt", numpy_file="small_glove_embed.npy"):
+	global WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR
+	
+	if WORD2VEC_DICT is None or WORD2ID_DICT is None or WORDVEC_TENSOR is None:
+		
+		word2vec = dict()
+		word2id = dict()
+		word_vecs = np.load(numpy_file)
+		with open(word_file, "r") as f:
+			for i, l in enumerate(f):
+				word2vec[l.replace("\n","")] = word_vecs[i,:]
+		index = 0
+		for key, _ in word2vec.items():
+			word2id[key] = index
+			index += 1
+
+		print("Loaded vocabulary of size " + str(word_vecs.shape[0]))
+		WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR = word2vec, word2id, word_vecs
+
+	return WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR
 
 
 def save_word2vec_as_GloVe(output_file="small_glove_torchnlp.txt"):
@@ -139,53 +149,50 @@ SNLI_VAL_DATASET = None
 SNLI_TEST_DATASET = None
 SNLI_TEST_HARD_DATASET = None
 SNLI_TEST_EASY_DATASET = None
-SNLI_WORD2VEC = None
-SNLI_WORD2ID = None
-SNLI_WORDVEC_TENSOR = None
 
 def load_SNLI_datasets(debug_dataset=False):
 	# Train dataset takes time to load. If we just want to shortly debug the pipeline, set "debug_dataset" to true. Then the validation dataset will be used for training
-	global SNLI_TRAIN_DATASET, SNLI_VAL_DATASET, SNLI_TEST_DATASET, SNLI_WORD2VEC, SNLI_WORD2ID, SNLI_WORDVEC_TENSOR
+	global SNLI_TRAIN_DATASET, SNLI_VAL_DATASET, SNLI_TEST_DATASET, WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR
 	
-	if SNLI_WORD2VEC is None or SNLI_WORD2ID is None or SNLI_WORDVEC_TENSOR is None:
-		SNLI_WORD2VEC, SNLI_WORD2ID, SNLI_WORDVEC_TENSOR = load_word2vec_from_file()
+	if WORD2VEC_DICT is None or WORD2ID_DICT is None or WORDVEC_TENSOR is None:
+		WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR = load_word2vec_from_file()
 
 	if SNLI_TRAIN_DATASET is None:
 		train_dataset = SNLIDataset('train' if not debug_dataset else 'dev', shuffle_data=True)
 		train_dataset.print_statistics()
-		train_dataset.set_vocabulary(SNLI_WORD2ID)
+		train_dataset.set_vocabulary(WORD2ID_DICT)
 		SNLI_TRAIN_DATASET = train_dataset
 
 	if SNLI_VAL_DATASET is None:
 		val_dataset = SNLIDataset('dev', shuffle_data=False)
 		val_dataset.print_statistics()
-		val_dataset.set_vocabulary(SNLI_WORD2ID)
+		val_dataset.set_vocabulary(WORD2ID_DICT)
 		SNLI_VAL_DATASET = val_dataset
 
 	if SNLI_TEST_DATASET is None:
 		test_dataset = SNLIDataset('test', shuffle_data=False)
 		test_dataset.print_statistics()
-		test_dataset.set_vocabulary(SNLI_WORD2ID)
+		test_dataset.set_vocabulary(WORD2ID_DICT)
 		SNLI_TEST_DATASET = test_dataset
 
-	return SNLI_TRAIN_DATASET, SNLI_VAL_DATASET, SNLI_TEST_DATASET, SNLI_WORD2VEC, SNLI_WORD2ID, SNLI_WORDVEC_TENSOR
+	return SNLI_TRAIN_DATASET, SNLI_VAL_DATASET, SNLI_TEST_DATASET, WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR
 
 def load_SNLI_splitted_test():
-	global SNLI_TEST_HARD_DATASET, SNLI_TEST_EASY_DATASET, SNLI_WORD2ID
+	global SNLI_TEST_HARD_DATASET, SNLI_TEST_EASY_DATASET, WORD2ID_DICT
 	
-	if SNLI_WORD2ID:
-		_, SNLI_WORD2ID, _ = load_word2vec_from_file()
+	if WORD2ID_DICT:
+		_, WORD2ID_DICT, _ = load_word2vec_from_file()
 
 	if SNLI_TEST_HARD_DATASET is None:
 		test_hard_dataset = SNLIDataset('test_hard', shuffle_data=False)
 		test_hard_dataset.print_statistics()
-		test_hard_dataset.set_vocabulary(SNLI_WORD2ID)
+		test_hard_dataset.set_vocabulary(WORD2ID_DICT)
 		SNLI_TEST_HARD_DATASET = test_hard_dataset
 
 	if SNLI_TEST_EASY_DATASET is None:
 		test_easy_dataset = SNLIDataset('test_easy', shuffle_data=False)
 		test_easy_dataset.print_statistics()
-		test_easy_dataset.set_vocabulary(SNLI_WORD2ID)
+		test_easy_dataset.set_vocabulary(WORD2ID_DICT)
 		SNLI_TEST_EASY_DATASET = test_easy_dataset
 
 	return SNLI_TEST_HARD_DATASET, SNLI_TEST_EASY_DATASET
