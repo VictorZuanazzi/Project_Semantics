@@ -171,6 +171,16 @@ class MultiTaskSampler:
 		return loss
 
 
+	def evaluate_all(self):
+		print("Evaluation...")
+		accuracy_dict = dict()
+		for t in self.tasks:
+			acc, detailed_acc = t.eval()
+			print("Task " + t.name + ": %4.2f%%" % (acc*100.0))
+			accuracy_dict[t.name] = detailed_acc
+		return accuracy_dict
+
+
 	def _add_loss_to_record(self, task_index, loss, weight):
 		self.loss_counters[task_index + 1, 0] += loss.item()
 		self.loss_counters[task_index + 1, 1] += weight 
