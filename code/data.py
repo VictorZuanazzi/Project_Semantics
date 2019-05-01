@@ -232,6 +232,44 @@ def load_SST_datasets(debug_dataset=False):
 ## Dataset class definitions ##
 ###############################
 
+class DatasetHandler:
+
+	SNLI_DATASETS = None
+	SNLI_EXTRA_DATASETS = None
+	SST_DATASETS = None
+
+	@staticmethod
+	def load_all_type_datasets(dataset_fun, debug_dataset=False, data_types=None):
+		_, word2id_dict, _ = load_word2vec_from_file()
+		dataset_list = list()
+		if data_types is None:
+			data_types = ['train' if not debug_dataset else 'dev', 'dev', 'test']
+		for data_type, data_shuffle in zip(data_types, data_shuffle):
+			dataset = dataset_fun(data_type, shuffle_data=('train' in data_type))
+			dataset.print_statistics()
+			dataset.set_vocabulary(word2id_dict)
+			dataset_list.append(dataset)
+		return dataset_list
+
+	@staticmethod
+	def load_SNLI_datasets():
+		if DatasetHandler.SNLI_DATASETS is None:
+			DatasetHandler.SNLI_DATASETS = load_all_type_datasets(SNLIDataset)
+		return DatasetHandler.SNLI_DATASETS[0], DatasetHandler.SNLI_DATASETS[1], DatasetHandler.SNLI_DATASETS[2]
+
+	@staticmethod
+	def load_SNLI_splitted_datasets():
+		if DatasetHandler.SNLI_EXTRA_DATASETS is None:
+			DatasetHandler.SNLI_EXTRA_DATASETS = load_all_type_datasets(SNLIDataset, data_types=['test_hard', 'test_easy']) 
+		return DatasetHandler.SNLI_EXTRA_DATASETS[0], DatasetHandler.SNLI_EXTRA_DATASETS[1]
+
+	@staticmethod
+	def load_SST_datasets():
+		if DatasetHandler.SST_DATASETS is None:
+			DatasetHandler.SST_DATASETS = load_all_type_datasets(SSTDataset)
+		return DatasetHandler.SST_DATASETS[0], DatasetHandler.SST_DATASETS[1]
+
+
 class DatasetTemplate:
 
 	def __init__(self, data_type="train", shuffle_data=True):
