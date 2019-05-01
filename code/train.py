@@ -158,6 +158,8 @@ class MultiTaskTrain:
 					if writer is not None:
 						write_dict_to_tensorboard(writer, evaluation_dict[index_iter+1], base_name="eval", iteration=index_iter+1)
 						export_weight_parameters(index_iter+1)
+						for t in self.tasks:
+							t.add_to_summary(writer, index_iter+1)
 
 				# Saving
 				if (index_iter + 1) % save_freq == 0:
@@ -232,6 +234,7 @@ if __name__ == '__main__':
 	parser.add_argument("--task_SNLI_head", help="Specification of SNLI task head. Use string encoding, for example: \"--task_SNLI_head model=0,dp=0.5,dim=300\". Default: use default values defined by parameters \"fc_dim\" etc.", type=str, default="")
 	parser.add_argument("--task_POS", help="Frequency with which the task POS tagging should be used. Default: 0 (not used at all)", type=float, default=0)
 	parser.add_argument("--task_SST", help="Frequency with which the task Stanford Sentiment Treebank should be used. Default: 0 (not used at all)", type=float, default=0)
+	parser.add_argument("--task_SST_head", help="Specification of SST task head. Use string encoding, for example: \"--task_SST_head model=0,dp=0.5,dim=300\". Default: use default values defined by parameters \"fc_dim\" etc.", type=str, default="")
 	parser.add_argument("--task_VUMetaphor", help="Frequency with which the task VUMetaphor should be used. Default: 0 (not used at all)", type=float, default=0)
 	# Multitask training
 	parser.add_argument("--multi_epoch_size", help="Size of epoch for which the batch indices are shuffled", type=int, default=1e3)

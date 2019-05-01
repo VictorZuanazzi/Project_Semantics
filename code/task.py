@@ -6,9 +6,11 @@ import math
 from random import shuffle
 import os
 import sys
+import matplotlib.pyplot as plt
 
 from model import SimpleClassifier, NLIClassifier, ESIM_Head
-from data import DatasetHandler, debug_level
+from data import DatasetTemplate, DatasetHandler, debug_level
+from vocab import get_id2word_dict
 
 
 class TaskTemplate:
@@ -107,6 +109,10 @@ class TaskTemplate:
 
 	def get_parameters(self):
 		return self.classifier.parameters()
+
+
+	def add_to_summary(self, writer, iteration):
+		pass
 
 
 	@staticmethod
@@ -277,6 +283,38 @@ class SNLITask(TaskTemplate):
 		else:
 			out = self.classifier(embed_s1, lengths[0], embed_s2, lengths[1], applySoftmax=applySoftmax)
 		return out
+
+
+	def add_to_summary(self, writer, iteration, num_examples=4):
+		if isinstance(self.classifier, ESIM_Head):
+			random_samples = np.random.randint(0, len(self.val_dataset.data_list), size=num_examples)
+			random_data = [self.val_dataset.data_list[i] for i in random_samples]
+			batch_prem = [data.premise_vocab for data in random_data]
+			batch_hyp = [data.hypothesis_vocab for data in random_data]
+			batch_labels = [data.label for data in random_data]
+			embeds, lengths, _ = DatasetTemplate.sents_to_Tensors([batch_prem, batch_hyp], batch_labels=None, toTorch=True)
+			with torch.no_grad():
+				_ = self._forward_model(embeds, lengths, applySoftmax=False)
+			prem_attention_map = self.classifier.last_prem_attention_map
+			hyp_attention_map = self.classifier.last_hyp_attention_map
+			id2word = get_id2word_dict()
+			fig = plt.figure()
+			figure_list = list()
+			ncols = int(math.ceil(math.sqrt(num_examples)))
+			for i in range(len(random_data)):
+				for attention_map, main_w in zip([prem_attention_map, np.transpose(hyp_attention_map, (0,2,1))], ["premise", "hypothesis"]):
+					fig = plt.figure()
+					ax = fig.add_subplot(111)
+					cax = ax.matshow(attention_map[i,:batch_prem[i].shape[0],:batch_hyp[i].shape[0]], cmap=plt.cm.gray)
+					ax.set_yticklabels([id2word[x] for x in batch_prem[i]])
+					ax.set_xticklabels([id2word[x] for x in batch_hyp[i]])
+					plt.yticks(range(batch_prem[i].shape[0]))
+					plt.xticks(range(batch_hyp[i].shape[0]), rotation=90)
+					# print("Attention map %i shape: " % (i) + str(attention_map[i,:batch_prem[i].shape[0],:batch_hyp[i].shape[0]].shape))
+					# print("Premise %i: %s" % (i, " ".join([id2word[x] for x in batch_prem[i]])))
+					# print("Hypothesis %i: %s" % (i, " ".join([id2word[x] for x in batch_hyp[i]])))
+					writer.add_figure(tag="train/sample_attention_maps_%i_%s"%(i, main_w), figure=fig, global_step=iteration)
+
 			
 
 class SSTTask(TaskTemplate):

@@ -128,6 +128,7 @@ def args_to_params(args):
 		add_head(SNLITask.NAME, args.task_SNLI_head)
 	if args.task_SST > 0:
 		task_freq_dict[SSTTask.NAME] = args.task_SST
+		add_head(SSTTask.NAME, args.task_SST_head)
 
 	tasks = sorted(list(task_freq_dict.keys()))
 

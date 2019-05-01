@@ -168,12 +168,13 @@ class ESIM_Head(ClassifierHead):
 											   bidirectional=True)
 		self.classifier = nn.Sequential(
 			nn.Dropout(p=fc_dropout),
-			nn.Linear(4 * embed_sent_dim, fc_dim),
+			nn.Linear(4 * embed_sent_dim, hidden_size),
 			nn.Tanh(),
 			nn.Dropout(p=fc_dropout),
-			nn.Linear(fc_dim, n_classes)
+			nn.Linear(hidden_size, n_classes)
 		)
 		self.softmax_layer = nn.Softmax(dim=-1)
+		self.last_attention_map = None
 
 
 	def forward(self, word_embed_premise, length_premise, word_embed_hypothesis, length_hypothesis, applySoftmax=False):
@@ -216,6 +217,8 @@ class ESIM_Head(ClassifierHead):
 		prem_to_hyp_attn = self._masked_softmax(similarity_matrix, length_hypothesis)
 		hyp_to_prem_attn = self._masked_softmax(similarity_matrix.transpose(1, 2).contiguous(), # Input shape: [batch, hyp len, prem len]
 											   length_premise)
+		self.last_prem_attention_map = prem_to_hyp_attn.cpu().data.numpy()
+		self.last_hyp_attention_map = hyp_to_prem_attn.cpu().data.numpy()
 
 		prem_opponent = torch.bmm(prem_to_hyp_attn, word_embed_hypothesis)
 		hyp_opponent = torch.bmm(hyp_to_prem_attn, word_embed_premise)
@@ -228,6 +231,32 @@ class ESIM_Head(ClassifierHead):
 		softmax_act = self.softmax_layer(_input) * mask
 		softmax_act = softmax_act / torch.sum(softmax_act, dim=-1, keepdim=True)
 		return softmax_act
+
+	@staticmethod
+	def _init_esim_weights(module):
+		"""
+		Initialise the weights of the ESIM model.
+		Copied from https://github.com/coetaur0/ESIM/blob/master/esim/model.py
+		TODO: Incorporate it here. Is initialization so crucial here?
+		"""
+		if isinstance(module, nn.Linear):
+		    nn.init.xavier_uniform_(module.weight.data)
+		    nn.init.constant_(module.bias.data, 0.0)
+
+		elif isinstance(module, nn.LSTM):
+		    nn.init.xavier_uniform_(module.weight_ih_l0.data)
+		    nn.init.orthogonal_(module.weight_hh_l0.data)
+		    nn.init.constant_(module.bias_ih_l0.data, 0.0)
+		    nn.init.constant_(module.bias_hh_l0.data, 0.0)
+		    hidden_size = module.bias_hh_l0.data.shape[0] // 4
+		    module.bias_hh_l0.data[hidden_size:(2*hidden_size)] = 1.0
+
+		    if (module.bidirectional):
+		        nn.init.xavier_uniform_(module.weight_ih_l0_reverse.data)
+		        nn.init.orthogonal_(module.weight_hh_l0_reverse.data)
+		        nn.init.constant_(module.bias_ih_l0_reverse.data, 0.0)
+		        nn.init.constant_(module.bias_hh_l0_reverse.data, 0.0)
+		        module.bias_hh_l0_reverse.data[hidden_size:(2*hidden_size)] = 1.0
 
 
 

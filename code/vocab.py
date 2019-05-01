@@ -9,6 +9,7 @@ from random import shuffle
 
 WORD2VEC_DICT = None
 WORD2ID_DICT = None
+ID2WORD_DICT = None
 WORDVEC_TENSOR = None
 
 def load_word2vec_from_file(word_file="small_glove_words.txt", numpy_file="small_glove_embed.npy"):
@@ -32,6 +33,13 @@ def load_word2vec_from_file(word_file="small_glove_words.txt", numpy_file="small
 
 	return WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR
 
+def get_id2word_dict():
+	global ID2WORD_DICT, WORD2ID_DICT
+	if ID2WORD_DICT is None:
+		if WORD2ID_DICT is None:
+			load_word2vec_from_file()
+		ID2WORD_DICT = {v:k for k,v in WORD2ID_DICT.items()}
+	return ID2WORD_DICT
 
 def save_word2vec_as_GloVe(output_file="small_glove_torchnlp.txt"):
 	word2vec, word2id, word_vecs = load_word2vec_from_file()
