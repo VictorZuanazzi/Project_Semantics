@@ -19,7 +19,7 @@ from shutil import copyfile
 
 from model import MultiTaskEncoder
 from data import load_SNLI_datasets, debug_level, set_debug_level, DatasetTemplate, SentData
-from task import SNLITask
+from task import SNLITask, SSTTask
 
 PARAM_CONFIG_FILE = "param_config.pik"
 
@@ -112,6 +112,8 @@ def args_to_params(args):
 	task_freq_dict = {}
 	if args.task_SNLI > 0:
 		task_freq_dict[SNLITask.NAME] = args.task_SNLI
+	if args.task_SST > 0:
+		task_freq_dict[SSTTask.NAME] = args.task_SST
 
 	tasks = sorted(list(task_freq_dict.keys()))
 
@@ -177,7 +179,7 @@ def write_dict_to_tensorboard(writer, val_dict, base_name, iteration):
 	for name, val in val_dict.items():
 		if isinstance(val, dict):
 			write_dict_to_tensorboard(writer, val, base_name=base_name+"/"+name, iteration=iteration)
-		elif isinstance(val, list):
+		elif isinstance(val, (list, np.ndarray)):
 			continue
 		elif isinstance(val, (int, float)):
 			writer.add_scalar(base_name + "/" + name, val, iteration)

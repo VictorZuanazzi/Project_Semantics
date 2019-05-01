@@ -95,7 +95,7 @@ class NLIClassifier(nn.Module):
 class SimpleClassifier(nn.Module):
 
 	def __init__(self, model_params, num_classes):
-		super(NLIClassifier, self).__init__()
+		super(SimpleClassifier, self).__init__()
 		embed_sent_dim = model_params["embed_sent_dim"]
 		fc_dropout = model_params["fc_dropout"] 
 		fc_dim = model_params["fc_dim"]

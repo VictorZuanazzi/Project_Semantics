@@ -8,7 +8,7 @@ import os
 import sys
 
 from model import NLIClassifier, SimpleClassifier
-from data import load_SNLI_datasets, debug_level
+from data import load_SNLI_datasets, load_SST_datasets, debug_level
 
 
 class TaskTemplate:
@@ -171,7 +171,7 @@ class MultiTaskSampler:
 				task_loss, task_acc = t.train_step(int(task_batch_size))
 				task_loss = task_loss * task_weight
 				loss += task_loss
-				self._add_loss_to_record(task_index, task_loss, task_weight, acc=task_acc)
+				self._add_loss_to_record(task_index, task_loss, task_weight, acc=task_acc*task_weight)
 
 		self._add_loss_to_record(-1, loss, 1)
 
@@ -227,7 +227,7 @@ class SNLITask(TaskTemplate):
 
 
 	def _load_datasets(self):
-		self.train_dataset, self.val_dataset, self.test_dataset, _, _, _ = load_SNLI_datasets()
+		self.train_dataset, self.val_dataset, self.test_dataset, _, _, _ = load_SNLI_datasets(debug_dataset=False)
 
 
 	def train_step(self, batch_size, loop_dataset=True):
@@ -260,6 +260,49 @@ class SNLITask(TaskTemplate):
 		
 		return pred_labels, batch_labels
 			
+
+class SSTTask(TaskTemplate):
+
+	NAME = "Stanford_Sentiment_Treebank"
+
+	def __init__(self, model, classifier_params, load_data=True):
+		super(SSTTask, self).__init__(model=model, load_data=load_data, name=SSTTask.NAME)
+		self.classifier = SimpleClassifier(classifier_params, 2)
+		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
+		if torch.cuda.is_available():
+			self.classifier = self.classifier.cuda()
+			self.loss_module = self.loss_module.cuda()
+
+
+	def _load_datasets(self):
+		self.train_dataset, self.val_dataset, self.test_dataset = load_SST_datasets()
+
+
+	def train_step(self, batch_size, loop_dataset=True):
+		assert self.train_dataset is not None, "[!] ERROR: Training dataset not loaded. Please load the dataset beforehand for training."
+		
+		embeds, lengths, batch_labels = self.train_dataset.get_batch(batch_size, loop_dataset=loop_dataset, toTorch=True)
+		
+		sent_embeds = self.model.encode_sentence(embeds, lengths)
+		out = self.classifier(sent_embeds, applySoftmax=False)
+
+		loss = self.loss_module(out, batch_labels)
+
+		_, pred_labels = torch.max(out, dim=-1)
+		acc = torch.sum(pred_labels == batch_labels).float() / pred_labels.shape[-1]
+
+		return loss, acc
+
+
+	def _eval_batch(self, batch):
+		embeds, lengths, batch_labels = batch
+		
+		sent_embeds = self.model.encode_sentence(embeds, lengths)
+		preds = self.classifier(sent_embeds, applySoftmax=True)
+		
+		_, pred_labels = torch.max(preds, dim=-1)
+		
+		return pred_labels, batch_labels
 
 # class POSTask(TaskTemplate):
 

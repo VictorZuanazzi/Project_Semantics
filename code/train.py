@@ -16,7 +16,7 @@ from tensorboardX import SummaryWriter
 # from visualdl import LogWriter
 # from torchviz import make_dot
 
-from task import TaskTemplate, SNLITask, MultiTaskSampler
+from task import TaskTemplate, SNLITask, SSTTask, MultiTaskSampler
 from model import MultiTaskEncoder
 from data import load_SNLI_datasets, debug_level, set_debug_level, load_word2vec_from_file
 from mutils import load_model, load_args, args_to_params, get_dict_val, PARAM_CONFIG_FILE, write_dict_to_tensorboard
@@ -41,6 +41,8 @@ class MultiTaskTrain:
 	def _create_task(self, task, model_params):
 		if task == SNLITask.NAME:
 			return SNLITask(self.model, model_params, load_data=True)
+		elif task == SSTTask.NAME:
+			return SSTTask(self.model, model_params, load_data=True)
 		else:
 			print("[!] ERROR: Unknown task " + str(task))
 			sys.exit(1) 
@@ -219,9 +221,10 @@ if __name__ == '__main__':
 	parser.add_argument("--cluster", help="Enable option if code is executed on cluster. Reduces output size", action="store_true")
 	parser.add_argument("-d", "--debug", help="Whether debug output should be activated or not", action="store_true")
 	# Tasks
-	parser.add_argument("--task_SNLI", help="Frequency with which the task SNLI should be used. Default: 0 (not used at all)", type=int, default=0)
-	parser.add_argument("--task_POS", help="Frequency with which the task POS tagging should be used. Default: 0 (not used at all)", type=int, default=0)
-	parser.add_argument("--task_VUMetaphor", help="Frequency with which the task VUMetaphor should be used. Default: 0 (not used at all)", type=int, default=0)
+	parser.add_argument("--task_SNLI", help="Frequency with which the task SNLI should be used. Default: 0 (not used at all)", type=float, default=0)
+	parser.add_argument("--task_POS", help="Frequency with which the task POS tagging should be used. Default: 0 (not used at all)", type=float, default=0)
+	parser.add_argument("--task_SST", help="Frequency with which the task Stanford Sentiment Treebank should be used. Default: 0 (not used at all)", type=float, default=0)
+	parser.add_argument("--task_VUMetaphor", help="Frequency with which the task VUMetaphor should be used. Default: 0 (not used at all)", type=float, default=0)
 	# Multitask training
 	parser.add_argument("--multi_epoch_size", help="Size of epoch for which the batch indices are shuffled", type=int, default=1e3)
 	parser.add_argument("--multi_batchwise", help="Whether the multi-task learning should be done per batch, or the elements within a batch come from multiple tasks", action="store_true")

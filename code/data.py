@@ -198,6 +198,36 @@ def load_SNLI_splitted_test():
 	return SNLI_TEST_HARD_DATASET, SNLI_TEST_EASY_DATASET
 
 
+SST_TRAIN_DATASET = None 
+SST_VAL_DATASET = None 
+SST_TEST_DATASET = None
+
+def load_SST_datasets(debug_dataset=False):
+	global SST_TRAIN_DATASET, SST_VAL_DATASET, SST_TEST_DATASET, WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR
+	
+	if WORD2VEC_DICT is None or WORD2ID_DICT is None or WORDVEC_TENSOR is None:
+		WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR = load_word2vec_from_file()
+
+	if SST_TRAIN_DATASET is None:
+		train_dataset = SSTDataset('train' if not debug_dataset else 'dev', shuffle_data=True)
+		train_dataset.print_statistics()
+		train_dataset.set_vocabulary(WORD2ID_DICT)
+		SST_TRAIN_DATASET = train_dataset
+
+	if SST_VAL_DATASET is None:
+		val_dataset = SSTDataset('dev', shuffle_data=False)
+		val_dataset.print_statistics()
+		val_dataset.set_vocabulary(WORD2ID_DICT)
+		SST_VAL_DATASET = val_dataset
+
+	if SST_TEST_DATASET is None:
+		test_dataset = SSTDataset('test', shuffle_data=False)
+		test_dataset.print_statistics()
+		test_dataset.set_vocabulary(WORD2ID_DICT)
+		SST_TEST_DATASET = test_dataset
+
+	return SST_TRAIN_DATASET, SST_VAL_DATASET, SST_TEST_DATASET
+
 ###############################
 ## Dataset class definitions ##
 ###############################
@@ -209,6 +239,7 @@ class DatasetTemplate:
 		self.shuffle_data = shuffle_data
 		self.set_data_list(list())
 		self.label_dict = dict()
+		self.num_invalids = 0
 
 	def set_data_list(self, new_data):
 		self.data_list = new_data
@@ -253,6 +284,32 @@ class DatasetTemplate:
 	def get_num_examples(self):
 		return len(self.data_list)
 
+	def get_word_list(self):
+		all_words = dict()
+		for i, data in enumerate(self.data_list):
+			if debug_level() == 0:
+				print("Processed %4.2f%% of the dataset" % (100.0 * i / len(self.data_list)), end="\r")
+			if isinstance(data, NLIData):
+				data_words = data.premise_words + data.hypothesis_words
+			else:
+				data_words = data.sent_words
+			for w in data_words:
+				if w not in all_words:
+					all_words[w] = ''
+		all_words = list(all_words.keys())
+		print("Found " + str(len(all_words)) + " unique words")
+		return all_words
+
+	def set_vocabulary(self, word2vec):
+		missing_words = 0
+		overall_words = 0
+		for data in self.data_list:
+			data.translate_to_dict(word2vec)
+			mw, ow = data.number_words_not_in_dict(word2vec)
+			missing_words += mw 
+			overall_words += ow 
+		print("Amount of missing words: %4.2f%%" % (100.0 * missing_words / overall_words))
+
 	def get_batch(self, batch_size, loop_dataset=True, toTorch=False):
 		# Default: assume that dataset entries contain object of SentData
 		if not loop_dataset:
@@ -267,7 +324,11 @@ class DatasetTemplate:
 		return (embeds[0], lengths[0], labels)
 
 	def get_num_classes(self):
-		raise NotImplementedError
+		c = 0
+		for key, val in self.label_dict.items():
+			if val >= 0:
+				c += 1
+		return c
 
 	def add_label_explanation(self, label_dict):
 		# The keys should be the labels, the explanation strings
@@ -281,11 +342,22 @@ class DatasetTemplate:
 		else:
 			return str(label)
 
+	def print_statistics(self):
+		print("="*50)
+		print("Dataset statistics " + self.data_type)
+		print("-"*50)
+		print("Number of examples: " + str(len(self.data_list)))
+		print("Labelwise amount:")
+		for key, val in self.label_dict.items():
+			print("\t- " + val + ": " + str(sum([d.label == key for d in self.data_list])))
+		print("Number of invalid examples: " + str(self.num_invalids))
+		print("="*50)
+
 
 class SNLIDataset(DatasetTemplate):
 
 	# Data type either train, dev or test
-	def __init__(self, data_type, data_path="../snli_1.0", add_suffix=True, shuffle_data=True):
+	def __init__(self, data_type, data_path="../data/snli_1.0", add_suffix=True, shuffle_data=True):
 		super(SNLIDataset, self).__init__(data_type, shuffle_data)
 		if data_path is not None:
 			self.load_data(data_path, data_type)
@@ -312,40 +384,6 @@ class SNLIDataset(DatasetTemplate):
 			d = NLIData(premise = prem, hypothesis = hyp, label = lab)
 			self.data_list.append(d)
 
-	def get_word_list(self):
-		all_words = dict()
-		for i, data in enumerate(self.data_list):
-			if debug_level() == 0:
-				print("Processed %4.2f%% of the dataset" % (100.0 * i / len(self.data_list)), end="\r")
-			data_words = data.premise_words + data.hypothesis_words
-			for w in data_words:
-				if w not in all_words:
-					all_words[w] = ''
-		all_words = list(all_words.keys())
-		print("Found " + str(len(all_words)) + " unique words")
-		return all_words
-
-	def set_vocabulary(self, word2vec):
-		missing_words = 0
-		overall_words = 0
-		for data in self.data_list:
-			data.translate_to_dict(word2vec)
-			mw, ow = data.number_words_not_in_dict(word2vec)
-			missing_words += mw 
-			overall_words += ow 
-		print("Amount of missing words: %4.2f%%" % (100.0 * missing_words / overall_words))
-
-	def print_statistics(self):
-		print("="*50)
-		print("Dataset statistics " + self.data_type)
-		print("-"*50)
-		print("Number of examples: " + str(len(self.data_list)))
-		print("Labelwise amount:")
-		for key, val in NLIData.LABEL_LIST.items():
-			print("\t- " + key + ": " + str(sum([d.label == val for d in self.data_list])))
-		print("Number of invalid examples: " + str(self.num_invalids))
-		print("="*50)
-
 	def get_batch(self, batch_size, loop_dataset=True, toTorch=False, bidirectional=False):
 		# Output sentences with dimensions (bsize, max_len)
 		if not loop_dataset:
@@ -363,12 +401,39 @@ class SNLIDataset(DatasetTemplate):
 				batch_s2.append(data.hypothesis_vocab[::-1])
 		return DatasetTemplate.sents_to_Tensors([batch_s1, batch_s2], batch_labels=batch_labels, toTorch=toTorch)
 
-	def get_num_classes(self):
-		c = 0
-		for key, val in NLIData.LABEL_LIST:
-			if val >= 0:
-				c += 1
-		return c
+
+class SSTDataset(DatasetTemplate):
+
+	LABEL_LIST = {
+		0 : "Negative",
+		1 : "Positive"
+	}
+
+	# Data type either train, dev or test
+	def __init__(self, data_type, data_path="../data/SST", add_suffix=True, shuffle_data=True):
+		super(SSTDataset, self).__init__(data_type, shuffle_data)
+		if data_path is not None:
+			self.load_data(data_path, data_type)
+		else:
+			self.data_list == list()
+		super().set_data_list(self.data_list)
+		super().add_label_explanation(SSTDataset.LABEL_LIST)
+
+	def load_data(self, data_path, data_type):
+		self.data_list = list()
+		self.num_invalids = 0
+		filepath = os.path.join(data_path, data_type + ".txt")
+		with open(filepath, mode="r", encoding="utf-8") as f:
+			for line in f:
+				sent = line.strip().replace("\\","")
+				tokens = re.sub(r"\([0-9] |\)", "", sent).split()
+				label = int(sent[1])
+				if label == 2:
+					self.num_invalids += 1
+					continue
+				label = 0 if label < 2 else 1
+				d = SentData(sentence=" ".join(tokens), label=label)
+				self.data_list.append(d)
 
 
 class NLIData:
@@ -424,6 +489,13 @@ class SentData:
 	def translate_to_dict(self, word_dict):
 		self.sent_vocab = SentData._sentence_to_dict(word_dict, self.sent_words)
 
+	def number_words_not_in_dict(self, word_dict):
+		missing_words = 0
+		for w in self.sent_words:
+			if w not in word_dict:
+				missing_words += 1
+		return missing_words, len(self.sent_words)
+
 	@staticmethod
 	def _preprocess_sentence(sent):
 		sent_words = list(sent.lower().strip().split(" "))
@@ -462,6 +534,58 @@ class SentData:
 				if subword in word_dict:
 					vocab_words.append(word_dict[subword])
 		return vocab_words
+
+
+# class SeqData:
+
+# 	def __init__(self, sentence, label):
+# 		self.sent_words = SeqData._preprocess_sentence(sentence)
+# 		self.label = label
+# 		assert len(self.label) == len(self.sent_words), "Number of labels have to fit to number of words in the sentence"
+# 		self.sent_vocab = None
+
+# 	def translate_to_dict(self, word_dict):
+# 		self.sent_vocab = SentData._sentence_to_dict(word_dict, self.sent_words)
+
+# 	@staticmethod
+# 	def _preprocess_sentence(sent, labels):
+# 		sent_words = list(sent.lower().strip().split(" "))
+# 		if "." in sent_words[-1] and len(sent_words[-1]) > 1:
+# 			sent_words[-1] = sent_words[-1].replace(".","")
+# 			sent_words.append(".")
+# 		sent_words = [w for w in sent_words if len(w) > 0]
+# 		for i in range(len(sent_words)):
+# 			if len(sent_words[i]) > 1 and "." in sent_words[i]:
+# 				sent_words[i] = sent_words[i].replace(".","")
+# 		return sent_words
+
+# 	@staticmethod
+# 	def _sentence_to_dict(word_dict, sent, labels):
+# 		vocab_words = list()
+# 		vocab_words += [word_dict['<s>']]
+# 		vocab_words += SentData._word_seq_to_dict(sent, word_dict)
+# 		vocab_words += [word_dict['</s>']]
+# 		vocab_words = np.array(vocab_words, dtype=np.int32)
+
+# 		return vocab_words
+
+# 	@staticmethod
+# 	def _word_seq_to_dict(word_seq, word_dict, labels):
+# 		vocab_words = list()
+# 		for w_index, w in enumerate(word_seq):
+# 			if len(w) <= 0:
+# 				continue
+# 			if w in word_dict:
+# 				vocab_words.append(word_dict[w])
+# 			elif "-" in w:
+# 				vocab_words += SentData._word_seq_to_dict(w.split("-"), word_dict, labels=[labels[w_index]])
+# 			elif "/" in w:
+# 				vocab_words += SentData._word_seq_to_dict(w.split("/"), word_dict)
+# 			else:
+# 				subword = re.sub('\W+','', w)
+# 				if subword in word_dict:
+# 					vocab_words.append(word_dict[subword])
+# 		return vocab_words
 
 
 if __name__ == '__main__':
