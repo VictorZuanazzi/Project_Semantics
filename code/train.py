@@ -18,7 +18,8 @@ from tensorboardX import SummaryWriter
 
 from task import TaskTemplate, SNLITask, SSTTask, MultiTaskSampler
 from model import MultiTaskEncoder
-from data import load_SNLI_datasets, debug_level, set_debug_level, load_word2vec_from_file
+from data import debug_level, set_debug_level
+from vocab import load_word2vec_from_file
 from mutils import load_model, load_args, args_to_params, get_dict_val, PARAM_CONFIG_FILE, write_dict_to_tensorboard
 
 class MultiTaskTrain:

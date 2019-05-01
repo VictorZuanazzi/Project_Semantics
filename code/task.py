@@ -8,7 +8,7 @@ import os
 import sys
 
 from model import NLIClassifier, SimpleClassifier
-from data import load_SNLI_datasets, load_SST_datasets, debug_level
+from data import DatasetHandler, debug_level
 
 
 class TaskTemplate:
@@ -227,7 +227,7 @@ class SNLITask(TaskTemplate):
 
 
 	def _load_datasets(self):
-		self.train_dataset, self.val_dataset, self.test_dataset, _, _, _ = load_SNLI_datasets(debug_dataset=False)
+		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SNLI_datasets(debug_dataset=False)
 
 
 	def train_step(self, batch_size, loop_dataset=True):
@@ -275,7 +275,7 @@ class SSTTask(TaskTemplate):
 
 
 	def _load_datasets(self):
-		self.train_dataset, self.val_dataset, self.test_dataset = load_SST_datasets()
+		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SST_datasets()
 
 
 	def train_step(self, batch_size, loop_dataset=True):
@@ -318,7 +318,7 @@ class SSTTask(TaskTemplate):
 
 
 # 	def _load_datasets(self):
-# 		self.train_dataset, self.val_dataset, self.test_dataset, _, _, _ = load_SNLI_datasets()
+# 		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SNLI_datasets()
 
 
 # 	def train_step(self, batch_size, loop_dataset=True):

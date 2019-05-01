@@ -18,7 +18,8 @@ from glob import glob
 from shutil import copyfile
 
 from model import MultiTaskEncoder
-from data import load_SNLI_datasets, debug_level, set_debug_level, DatasetTemplate, SentData
+from data import DatasetHandler, debug_level, set_debug_level, DatasetTemplate, SentData
+from vocab import load_word2vec_from_file
 from task import SNLITask, SSTTask
 
 PARAM_CONFIG_FILE = "param_config.pik"
@@ -67,7 +68,7 @@ def load_model(checkpoint_path, model=None, optimizer=None, lr_scheduler=None, l
 
 def load_model_from_args(args, checkpoint_path=None, load_best_model=False):
 	model_type, model_params, optimizer_params = args_to_params(args)
-	_, _, _, _, _, wordvec_tensor = load_SNLI_datasets(debug_dataset = False)
+	_, _, wordvec_tensor = load_word2vec_from_file()
 	model = MultiTaskEncoder(model_type, model_params, wordvec_tensor)
 	if checkpoint_path is not None:
 		load_model(checkpoint_path, model=model, load_best_model=load_best_model)
@@ -198,7 +199,7 @@ def loadFile(fpath):
 		return [line.split() for line in f.read().splitlines()]
 
 def task_to_dataset(sentences, labels, label_dict=None):
-	_, _, _, _, word2id, _ = load_SNLI_datasets(debug_dataset = False)
+	_, word2id, _ = load_word2vec_from_file()
 	data_batch = list()
 	for sent, lab in zip(sentences, labels):
 		str_sent = " ".join([w if isinstance(w, str) else w.decode('UTF-8') for w in sent])
@@ -325,7 +326,7 @@ def results_to_table():
 	print(s)
 
 def result_to_latex():
-	_, _, test_dataset, _, _, _ = load_SNLI_datasets(debug_dataset = True)
+	_, _, test_dataset = DatasetHandler.load_SNLI_datasets(debug_dataset = True)
 	test_labels = np.array([d.label for d in test_dataset.data_list])
 	result_folder = sorted(glob("results/*"))
 	s = " & ".join(["\\textbf{%s}" % (column_name) for column_name in ["Model","Train", "Val", "Test mic", "Test mac"]]) + "\\\\\n\\hline\n"
@@ -426,7 +427,7 @@ def imagecap_to_latex():
 	print(s)
 
 def extra_eval_to_latex():
-	# _, _, test_dataset, _, _, _ = load_SNLI_datasets(debug_dataset = True)
+	# _, _, test_dataset, _, _, _ = DatasetHandler.load_SNLI_datasets(debug_dataset = True)
 	# test_labels = np.array([d.label for d in test_dataset.data_list])
 	result_folder = sorted(glob("results/*"))
 	s = " & ".join(["\\textbf{%s}" % (column_name) for column_name in ["Model","Test easy", "Test hard", "Test combined"]]) + "\\\\\n\\hline\n"
@@ -452,7 +453,7 @@ def get_macro_accuracy(preds, labels):
 
 def test_for_significance(checkpoint_path_1, checkpoint_path_2):
 	print("Comparing " + str(checkpoint_path_1) + " and " + str(checkpoint_path_2))
-	_, _, test_dataset, _, _, _ = load_SNLI_datasets(debug_dataset = True)
+	_, _, test_dataset = DatasetHandler.load_SNLI_datasets(debug_dataset = True)
 	test_labels = np.array([d.label for d in test_dataset.data_list])
 	preds_1 = np.load(os.path.join(checkpoint_path_1, "test_predictions.npy"))
 	preds_2 = np.load(os.path.join(checkpoint_path_2, "test_predictions.npy"))

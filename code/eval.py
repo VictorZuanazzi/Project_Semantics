@@ -10,7 +10,7 @@ import numpy as np
 from glob import glob
 
 from model import NLIModel
-from data import load_SNLI_datasets, load_SNLI_splitted_test, debug_level
+from data import DatasetHandler, debug_level
 from mutils import load_model, load_model_from_args, load_args, args_to_params, visualize_tSNE, get_transfer_datasets
 
 from tensorboardX import SummaryWriter
@@ -22,8 +22,8 @@ from sent_eval import perform_SentEval
 class SNLIEval:
 
 	def __init__(self, model, batch_size=64):
-		self.train_dataset, self.val_dataset, self.test_dataset, _, _, _ = load_SNLI_datasets(debug_dataset = False)
-		self.test_hard_dataset, self.test_easy_dataset = load_SNLI_splitted_test()
+		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SNLI_datasets(debug_dataset = False)
+		self.test_hard_dataset, self.test_easy_dataset = DatasetHandler.load_SNLI_splitted_test()
 		self.model = model
 		self.batch_size = batch_size
 		self.accuracies = dict()

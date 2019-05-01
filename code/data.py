@@ -1,12 +1,11 @@
-
 import os
 import numpy as np
 import torch
 import json
 import re
 import sys
-# from spellchecker import SpellChecker
 from random import shuffle
+from vocab import load_word2vec_from_file
 
 # 0 => Full debug
 # 1 => Reduced output
@@ -21,212 +20,6 @@ def debug_level():
 	global DEBUG_LEVEL
 	return DEBUG_LEVEL
 
-def build_vocab(word_list, glove_path='../glove.840B.300d.txt'):
-	word2vec = {}
-	num_ignored_words = 0
-	num_missed_words = 0
-	num_found_words = 0
-	word_list = set(word_list)
-	overall_num_words = len(word_list)
-	with open(glove_path, "r") as f:
-		lines = f.readlines()
-		number_lines = len(lines)
-		for i, line in enumerate(lines):
-			if debug_level() == 0:
-				print("Processed %4.2f%% of the glove (found %4.2f%% of words yet)" % (100.0 * i / number_lines, 100.0 * num_found_words / overall_num_words), end="\r")
-			if num_found_words == overall_num_words:
-				break
-			# if num_found_words * 1.0 / overall_num_words > 0.7:
-			# 	break
-			word, vec = line.split(' ', 1)
-			if word in word_list:
-				glove_vec = [float(x) for x in vec.split()]
-				word2vec[word] = np.array(glove_vec)
-				num_found_words += 1
-			else:
-				num_ignored_words += 1
-
-
-	spell = SpellChecker()
-	example_missed_words = list()
-	for word in word_list:
-		if word not in word2vec:
-			num_missed_words += 1
-			# mis_spelled =  spell.unknown([word])
-			# for w in mis_spelled:
-			# 	print("Correct word \""+w+"\" to " + str(spell.correction(w)))
-			if num_missed_words < 30:
-				example_missed_words.append(word)
-
-	print("Created vocabulary with %i words. %i words were ignored from Glove, %i words were not found in embeddings." % (len(word2vec.keys()), num_ignored_words, num_missed_words))
-	if num_missed_words > 0:
-		print("Example missed words: " + " +++ ".join(example_missed_words))
-
-	return word2vec
-
-WORD2VEC_DICT = None
-WORD2ID_DICT = None
-WORDVEC_TENSOR = None
-
-def load_word2vec_from_file(word_file="small_glove_words.txt", numpy_file="small_glove_embed.npy"):
-	global WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR
-	
-	if WORD2VEC_DICT is None or WORD2ID_DICT is None or WORDVEC_TENSOR is None:
-		
-		word2vec = dict()
-		word2id = dict()
-		word_vecs = np.load(numpy_file)
-		with open(word_file, "r") as f:
-			for i, l in enumerate(f):
-				word2vec[l.replace("\n","")] = word_vecs[i,:]
-		index = 0
-		for key, _ in word2vec.items():
-			word2id[key] = index
-			index += 1
-
-		print("Loaded vocabulary of size " + str(word_vecs.shape[0]))
-		WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR = word2vec, word2id, word_vecs
-
-	return WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR
-
-
-def save_word2vec_as_GloVe(output_file="small_glove_torchnlp.txt"):
-	word2vec, word2id, word_vecs = load_word2vec_from_file()
-	s = ""
-	for key, val in word2vec.items():
-		s += key + " " + " ".join([("%g" % (x)) for x in val]) + "\n"
-	with open(output_file, "w") as f:
-		f.write(s)
-
-
-def create_word2vec_vocab():
-	val_dataset = SNLIDataset('dev')
-	val_dataset.print_statistics()
-	test_dataset = SNLIDataset('test')
-	test_dataset.print_statistics()
-	train_dataset = SNLIDataset('train')
-	train_dataset.print_statistics()
-
-	for dataset, name in zip([train_dataset, test_dataset, val_dataset], ["train", "test", "val"]):
-		filename = name + "_word_list.txt"
-		if True or not os.path.isfile(filename):
-			word_list = dataset.get_word_list()
-			with open(filename, "w") as f:
-				f.write("\n".join(word_list))
-
-	train_word_list = [l.rstrip() for l in open("train_word_list.txt", "r")]
-	test_word_list = [l.rstrip() for l in open("test_word_list.txt", "r")]
-	val_word_list = [l.rstrip() for l in open("val_word_list.txt", "r")]
-	senteval_word_list = [l.rstrip() for l in open("senteval_unknown_words.txt")]
-	if os.path.isfile("small_glove_words.txt"):
-		old_glove = [l.strip() for l in open("small_glove_words.txt")]
-		print("Found " + str(len(old_glove)) + " words in old GloVe embeddings")
-	else:
-		old_glove = []
-
-	word_list = list(set(val_word_list + test_word_list + train_word_list + senteval_word_list + old_glove + ['<s>', '</s>', '<p>', 'UNK']))
-	# Allow both with "-" and without "-" words to cover all possible preprocessing steps
-	print("Created word list with " + str(len(word_list)) + " words. Checking for \"-\" confusion...")
-	for word in word_list:
-		if "-" in word:
-			for w in word.split("-"):
-				if len(w) >= 1 and w not in word_list:
-					word_list.append(w)
-	print("Number of unique words in all datasets: " + str(len(word_list)))
-
-	voc = build_vocab(word_list)
-	np_word_list = []
-	with open('small_glove_words.txt', 'w') as f:
-		# json.dump(voc, f)
-		for key, val in voc.items():
-			f.write(key + "\n")
-			np_word_list.append(val)
-	np_word_array = np.stack(np_word_list, axis=0)
-	np.save('small_glove_embed.npy', np_word_array)
-
-SNLI_TRAIN_DATASET = None
-SNLI_VAL_DATASET = None
-SNLI_TEST_DATASET = None
-SNLI_TEST_HARD_DATASET = None
-SNLI_TEST_EASY_DATASET = None
-
-def load_SNLI_datasets(debug_dataset=False):
-	# Train dataset takes time to load. If we just want to shortly debug the pipeline, set "debug_dataset" to true. Then the validation dataset will be used for training
-	global SNLI_TRAIN_DATASET, SNLI_VAL_DATASET, SNLI_TEST_DATASET, WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR
-	
-	if WORD2VEC_DICT is None or WORD2ID_DICT is None or WORDVEC_TENSOR is None:
-		WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR = load_word2vec_from_file()
-
-	if SNLI_TRAIN_DATASET is None:
-		train_dataset = SNLIDataset('train' if not debug_dataset else 'dev', shuffle_data=True)
-		train_dataset.print_statistics()
-		train_dataset.set_vocabulary(WORD2ID_DICT)
-		SNLI_TRAIN_DATASET = train_dataset
-
-	if SNLI_VAL_DATASET is None:
-		val_dataset = SNLIDataset('dev', shuffle_data=False)
-		val_dataset.print_statistics()
-		val_dataset.set_vocabulary(WORD2ID_DICT)
-		SNLI_VAL_DATASET = val_dataset
-
-	if SNLI_TEST_DATASET is None:
-		test_dataset = SNLIDataset('test', shuffle_data=False)
-		test_dataset.print_statistics()
-		test_dataset.set_vocabulary(WORD2ID_DICT)
-		SNLI_TEST_DATASET = test_dataset
-
-	return SNLI_TRAIN_DATASET, SNLI_VAL_DATASET, SNLI_TEST_DATASET, WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR
-
-def load_SNLI_splitted_test():
-	global SNLI_TEST_HARD_DATASET, SNLI_TEST_EASY_DATASET, WORD2ID_DICT
-	
-	if WORD2ID_DICT:
-		_, WORD2ID_DICT, _ = load_word2vec_from_file()
-
-	if SNLI_TEST_HARD_DATASET is None:
-		test_hard_dataset = SNLIDataset('test_hard', shuffle_data=False)
-		test_hard_dataset.print_statistics()
-		test_hard_dataset.set_vocabulary(WORD2ID_DICT)
-		SNLI_TEST_HARD_DATASET = test_hard_dataset
-
-	if SNLI_TEST_EASY_DATASET is None:
-		test_easy_dataset = SNLIDataset('test_easy', shuffle_data=False)
-		test_easy_dataset.print_statistics()
-		test_easy_dataset.set_vocabulary(WORD2ID_DICT)
-		SNLI_TEST_EASY_DATASET = test_easy_dataset
-
-	return SNLI_TEST_HARD_DATASET, SNLI_TEST_EASY_DATASET
-
-
-SST_TRAIN_DATASET = None 
-SST_VAL_DATASET = None 
-SST_TEST_DATASET = None
-
-def load_SST_datasets(debug_dataset=False):
-	global SST_TRAIN_DATASET, SST_VAL_DATASET, SST_TEST_DATASET, WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR
-	
-	if WORD2VEC_DICT is None or WORD2ID_DICT is None or WORDVEC_TENSOR is None:
-		WORD2VEC_DICT, WORD2ID_DICT, WORDVEC_TENSOR = load_word2vec_from_file()
-
-	if SST_TRAIN_DATASET is None:
-		train_dataset = SSTDataset('train' if not debug_dataset else 'dev', shuffle_data=True)
-		train_dataset.print_statistics()
-		train_dataset.set_vocabulary(WORD2ID_DICT)
-		SST_TRAIN_DATASET = train_dataset
-
-	if SST_VAL_DATASET is None:
-		val_dataset = SSTDataset('dev', shuffle_data=False)
-		val_dataset.print_statistics()
-		val_dataset.set_vocabulary(WORD2ID_DICT)
-		SST_VAL_DATASET = val_dataset
-
-	if SST_TEST_DATASET is None:
-		test_dataset = SSTDataset('test', shuffle_data=False)
-		test_dataset.print_statistics()
-		test_dataset.set_vocabulary(WORD2ID_DICT)
-		SST_TEST_DATASET = test_dataset
-
-	return SST_TRAIN_DATASET, SST_VAL_DATASET, SST_TEST_DATASET
 
 ###############################
 ## Dataset class definitions ##
@@ -239,12 +32,12 @@ class DatasetHandler:
 	SST_DATASETS = None
 
 	@staticmethod
-	def load_all_type_datasets(dataset_fun, debug_dataset=False, data_types=None):
+	def _load_all_type_datasets(dataset_fun, debug_dataset=False, data_types=None):
 		_, word2id_dict, _ = load_word2vec_from_file()
 		dataset_list = list()
 		if data_types is None:
 			data_types = ['train' if not debug_dataset else 'dev', 'dev', 'test']
-		for data_type, data_shuffle in zip(data_types, data_shuffle):
+		for data_type in data_types:
 			dataset = dataset_fun(data_type, shuffle_data=('train' in data_type))
 			dataset.print_statistics()
 			dataset.set_vocabulary(word2id_dict)
@@ -252,22 +45,22 @@ class DatasetHandler:
 		return dataset_list
 
 	@staticmethod
-	def load_SNLI_datasets():
+	def load_SNLI_datasets(debug_dataset=False):
 		if DatasetHandler.SNLI_DATASETS is None:
-			DatasetHandler.SNLI_DATASETS = load_all_type_datasets(SNLIDataset)
+			DatasetHandler.SNLI_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, debug_dataset=debug_dataset)
 		return DatasetHandler.SNLI_DATASETS[0], DatasetHandler.SNLI_DATASETS[1], DatasetHandler.SNLI_DATASETS[2]
 
 	@staticmethod
 	def load_SNLI_splitted_datasets():
 		if DatasetHandler.SNLI_EXTRA_DATASETS is None:
-			DatasetHandler.SNLI_EXTRA_DATASETS = load_all_type_datasets(SNLIDataset, data_types=['test_hard', 'test_easy']) 
+			DatasetHandler.SNLI_EXTRA_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, data_types=['test_hard', 'test_easy']) 
 		return DatasetHandler.SNLI_EXTRA_DATASETS[0], DatasetHandler.SNLI_EXTRA_DATASETS[1]
 
 	@staticmethod
-	def load_SST_datasets():
+	def load_SST_datasets(debug_dataset=False):
 		if DatasetHandler.SST_DATASETS is None:
-			DatasetHandler.SST_DATASETS = load_all_type_datasets(SSTDataset)
-		return DatasetHandler.SST_DATASETS[0], DatasetHandler.SST_DATASETS[1]
+			DatasetHandler.SST_DATASETS = DatasetHandler._load_all_type_datasets(SSTDataset, debug_dataset=debug_dataset)
+		return DatasetHandler.SST_DATASETS[0], DatasetHandler.SST_DATASETS[1], DatasetHandler.SST_DATASETS[2]
 
 
 class DatasetTemplate:
@@ -624,15 +417,3 @@ class SentData:
 # 				if subword in word_dict:
 # 					vocab_words.append(word_dict[subword])
 # 		return vocab_words
-
-
-if __name__ == '__main__':
-	create_word2vec_vocab()
-	# train_dataset, val_dataset, test_dataset, word2vec, word2id, wordvec_tensor = load_SNLI_datasets()
-	# embeds, lengths, batch_labels = train_dataset.get_batch(8)
-	# print("Embeddings: " + str(embeds))
-	# print("Lengths: " + str(lengths))
-	# print("Labels: " + str(batch_labels))
-	save_word2vec_as_GloVe()
-
-
