@@ -53,11 +53,63 @@ class MultiTaskEncoder(nn.Module):
 		return sent_embeds
 
 
+####################################
+## CLASSIFIER/TASK-SPECIFIC HEADS ##
+####################################
 
-class NLIClassifier(nn.Module):
+class ClassifierHead(nn.Module):
+	"""
+		Base class for classifiers and heads.
+		Inputs:
+			* model_params: dict of all possible parameters that might be necessary to specify model
+			* word_level: Whether the classifier operates on word level of a sentence to get single label or not.
+						  A classifier that operates on sequence level is included in "False" (as it could also be applied on sentences)
+	"""
+	def __init__(self, model_params, word_level=False):
+		super(ClassifierHead, self).__init__()
+		self.model_params = model_params
+		self.word_level = word_level
 
+	def forward(self, input):
+		raise NotImplementedError
+
+	def is_word_level(self):
+		return self.word_level
+
+
+class SimpleClassifier(ClassifierHead):
+	"""
+		General purpose classifier with shallow MLP. 
+	"""
+	def __init__(self, model_params, num_classes):
+		super(SimpleClassifier, self).__init__(model_params, word_level=False)
+		embed_sent_dim = model_params["embed_sent_dim"]
+		fc_dropout = model_params["fc_dropout"] 
+		fc_dim = model_params["fc_dim"]
+
+		input_dim = embed_sent_dim
+		self.classifier = nn.Sequential(
+			nn.Dropout(p=fc_dropout),
+			nn.Linear(input_dim, fc_dim),
+			nn.ReLU(),
+			nn.Linear(fc_dim, num_classes)
+		)
+		self.softmax_layer = nn.Softmax(dim=-1)
+
+
+	def forward(self, input_features, applySoftmax=False):
+		out = self.classifier(input_features)
+		if applySoftmax:
+			out = self.softmax_layer(out)
+		return out
+
+
+class NLIClassifier(ClassifierHead):
+	"""
+		Classifier as proposed in InferSent paper. Requires sentence embedding of hypothesis and premise
+	"""
 	def __init__(self, model_params):
-		super(NLIClassifier, self).__init__()
+		super(NLIClassifier, self).__init__(model_params, word_level=False)
 		embed_sent_dim = model_params["embed_sent_dim"]
 		fc_dropout = model_params["fc_dropout"] 
 		fc_dim = model_params["fc_dim"]
@@ -92,29 +144,92 @@ class NLIClassifier(nn.Module):
 		return out
 
 
-class SimpleClassifier(nn.Module):
-
-	def __init__(self, model_params, num_classes):
-		super(SimpleClassifier, self).__init__()
+class ESIM_Head(ClassifierHead):
+	"""
+		Head based on the "Enhanced Sequential Inference Model" (ESIM). Takes cross-attention on word level over premise and hypothesis,
+		and has additional Bi-LSTM decoder. 
+		Paper: https://www.aclweb.org/anthology/P17-1152
+	"""
+	def __init__(self, model_params):
+		super(ESIM_Head, self).__init__(model_params, word_level=True)
 		embed_sent_dim = model_params["embed_sent_dim"]
 		fc_dropout = model_params["fc_dropout"] 
 		fc_dim = model_params["fc_dim"]
+		n_classes = model_params["nli_classes"]
 
-		input_dim = embed_sent_dim
+		hidden_size = int(embed_sent_dim/2)
+		self.projection_layer = nn.Sequential(
+			nn.Linear(4 * embed_sent_dim, hidden_size),
+			nn.ReLU(),
+			nn.Dropout(p=fc_dropout)
+		)
+		self.BiLSTM_decoder = PyTorchLSTMChain(input_size=hidden_size, 
+											   hidden_size=hidden_size,
+											   bidirectional=True)
 		self.classifier = nn.Sequential(
 			nn.Dropout(p=fc_dropout),
-			nn.Linear(input_dim, fc_dim),
-			nn.ReLU(),
-			nn.Linear(fc_dim, num_classes)
+			nn.Linear(4 * embed_sent_dim, fc_dim),
+			nn.Tanh(),
+			nn.Dropout(p=fc_dropout),
+			nn.Linear(fc_dim, n_classes)
 		)
 		self.softmax_layer = nn.Softmax(dim=-1)
 
 
-	def forward(self, input_features, applySoftmax=False):
+	def forward(self, word_embed_premise, length_premise, word_embed_hypothesis, length_hypothesis, applySoftmax=False):
+		# Cross attention
+		prem_opponent, hyp_opponent = self._cross_attention(word_embed_premise, length_premise, word_embed_hypothesis, length_hypothesis)
+		# Decode both sentences
+		prem_sentence = self._decode_sentence(word_embed_premise, length_premise, prem_opponent)
+		hyp_sentence = self._decode_sentence(word_embed_hypothesis, length_hypothesis, hyp_opponent)
+		# Concat both sentence embeddings as input features to classifier
+		input_features = torch.cat((prem_sentence, hyp_sentence), dim=1)
+		# Final classifier
 		out = self.classifier(input_features)
 		if applySoftmax:
 			out = self.softmax_layer(out)
 		return out
+
+
+	def _decode_sentence(self, word_embeds, lengths, opponents):
+		# Combine features
+		decode_features = torch.cat((word_embeds, opponents, 
+									 torch.abs(word_embeds - opponents), 
+									 word_embeds * opponents), dim=2)
+		# Projection layer to reduce dimension
+		proj_features = self.projection_layer(decode_features)
+		# Bi-LSTM decoder
+		_, dec_features = self.BiLSTM_decoder(proj_features, lengths)
+		# Pooling over last hidden states
+		max_features, _ = EncoderBILSTMPool.pool_over_time(dec_features, lengths, pooling='MAX')
+		mean_features, _ = EncoderBILSTMPool.pool_over_time(dec_features, lengths, pooling='MEAN')
+		# Final sentence embedding
+		sent_embed = torch.cat((max_features, mean_features), dim=1)
+		return sent_embed
+
+
+	def _cross_attention(self, word_embed_premise, length_premise, word_embed_hypothesis, length_hypothesis):
+		# Function bmm: If batch1 is a (b,n,m) tensor, batch2 is a (b,m,p) tensor, out will be a (b,n,p) tensor.
+		similarity_matrix = torch.bmm(word_embed_premise,
+									  word_embed_hypothesis.transpose(2, 1).contiguous()) # Shape: [batch, prem len, hyp len]
+		
+		prem_to_hyp_attn = self._masked_softmax(similarity_matrix, length_hypothesis)
+		hyp_to_prem_attn = self._masked_softmax(similarity_matrix.transpose(1, 2).contiguous(), # Input shape: [batch, hyp len, prem len]
+											   length_premise)
+
+		prem_opponent = torch.bmm(prem_to_hyp_attn, word_embed_hypothesis)
+		hyp_opponent = torch.bmm(hyp_to_prem_attn, word_embed_premise)
+		return prem_opponent, hyp_opponent
+
+
+	def _masked_softmax(self, _input, lengths):
+		word_positions = torch.arange(start=0, end=_input.shape[2], dtype=lengths.dtype, device=_input.device)
+		mask = (word_positions.reshape(shape=[1, 1, -1]) < lengths.reshape([-1, 1, 1])).float()
+		softmax_act = self.softmax_layer(_input) * mask
+		softmax_act = softmax_act / torch.sum(softmax_act, dim=-1, keepdim=True)
+		return softmax_act
+
+
 
 ####################
 ## ENCODER MODELS ##
@@ -191,7 +306,7 @@ class EncoderBILSTMPool(EncoderModule):
 		_, word_outputs = self.lstm_chain(embed_words, lengths)
 		if not word_level:
 			# Max time pooling
-			pooled_features, pool_indices = EncoderBILSTMPool.pool_over_time(word_outputs, lengths)
+			pooled_features, pool_indices = EncoderBILSTMPool.pool_over_time(word_outputs, lengths, pooling='MAX')
 			if debug:
 				return pooled_features, pool_indices
 			else:
@@ -200,13 +315,24 @@ class EncoderBILSTMPool(EncoderModule):
 			return word_outputs
 
 	@staticmethod
-	def pool_over_time(outputs, lengths):
+	def pool_over_time(outputs, lengths, pooling='MAX'):
 		time_dim = outputs.shape[1]
 		word_positions = torch.arange(start=0, end=time_dim, dtype=lengths.dtype, device=outputs.device)
 		mask = (word_positions.reshape(shape=[1, -1, 1]) < lengths.reshape([-1, 1, 1])).float()
-		outputs = outputs * mask + (torch.min(outputs) - 1) * (1 - mask)
-		final_states, max_indices = torch.max(outputs, dim=1)
-		return final_states, max_indices
+		if pooling == 'MAX':
+			outputs = outputs * mask + (torch.min(outputs) - 1) * (1 - mask)
+			final_states, pool_indices = torch.max(outputs, dim=1)
+		elif pooling == 'MIN':
+			outputs = outputs * mask + (torch.max(outputs) + 1) * (1 - mask)
+			final_states, pool_indices = torch.min(outputs, dim=1)
+		elif pooling == 'MEAN':
+			final_states = torch.sum(outputs * mask, dim=1) / lengths.reshape([-1, 1]).float()
+			pool_indices = None
+		else:
+			print("[!] ERROR: Unknown pooling option \"" + str(pooling) + "\"")
+			sys.exit(1)
+		return final_states, pool_indices
+	
 
 
 

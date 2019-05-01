@@ -7,15 +7,17 @@ from random import shuffle
 import os
 import sys
 
-from model import NLIClassifier, SimpleClassifier
+from model import SimpleClassifier, NLIClassifier, ESIM_Head
 from data import DatasetHandler, debug_level
 
 
 class TaskTemplate:
 
-	def __init__(self, model, name, load_data=True):
+	def __init__(self, model, model_params, name, load_data=True):
 		self.name = name 
 		self.model = model
+		self.model_params = model_params
+		self.classifier_params = model_params[name + "_head"] if (name + "_head") in model_params else model_params
 		self.classifier = None
 		self.loss_module = None
 		self.train_dataset = None 
@@ -73,13 +75,13 @@ class TaskTemplate:
 		print("-"*75)
 		print("Evaluation accuracy: %4.2f%%" % (accuracy * 100.0))
 		print("Accuracy per class: ")
-		for c in list(set(preds_list)):
+		for c in list(set(label_list)):
 			TP = np.sum(np.logical_and(preds_list == c, label_list == c))
 			FP = np.sum(np.logical_and(preds_list == c, label_list != c))
 			FN = np.sum(np.logical_and(preds_list != c, label_list == c))
-			recall = TP * 1.0 / (TP + FN) 
-			precision = TP * 1.0 / (TP + FP)
-			F1_score = 2.0 * TP / (2 * TP + FP + FN)
+			recall = TP * 1.0 / max(1e-5, TP + FN) 
+			precision = TP * 1.0 / max(1e-5, TP + FP)
+			F1_score = 2.0 * TP / max(1e-5, 2 * TP + FP + FN)
 			print("\t- Class %s: Recall=%4.2f%%, Precision=%4.2f%%, F1 score=%4.2f%%" % (dataset.label_to_string(c), recall, precision, F1_score))
 			detailed_acc["class_scores"][dataset.label_to_string(c)] = {"recall": recall, "precision": precision, "f1": F1_score}
 		print("-"*75)
@@ -217,13 +219,27 @@ class SNLITask(TaskTemplate):
 
 	NAME = "Stanford_NLI"
 
-	def __init__(self, model, classifier_params, load_data=True):
-		super(SNLITask, self).__init__(model=model, load_data=load_data, name=SNLITask.NAME)
-		self.classifier = NLIClassifier(classifier_params)
+	CLASSIFIER_INFERSENT = 0
+	CLASSIFIER_ESIM = 1
+
+	def __init__(self, model, model_params, load_data=True):
+		super(SNLITask, self).__init__(model=model, model_params=model_params, load_data=load_data, name=SNLITask.NAME)
+		self.classifier = self._create_classifier()
 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
 		if torch.cuda.is_available():
 			self.classifier = self.classifier.cuda()
 			self.loss_module = self.loss_module.cuda()
+
+
+	def _create_classifier(self):
+		if "model" not in self.classifier_params or self.classifier_params["model"] == SNLITask.CLASSIFIER_INFERSENT:
+			return NLIClassifier(self.classifier_params)
+		elif self.classifier_params["model"] == SNLITask.CLASSIFIER_ESIM:
+			return ESIM_Head(self.classifier_params)
+		else:
+			print("[!] ERROR: Unknown classifier for SNLI Task: " + str(self.classifier_params["model"]) + \
+				  "Supported options are: [" + ",".join([str(o) for o in [SNLITask.CLASSIFIER_INFERSENT, SNLITask.CLASSIFIER_ESIM]]) + "]")
+			sys.exit(1)
 
 
 	def _load_datasets(self):
@@ -234,14 +250,9 @@ class SNLITask(TaskTemplate):
 		assert self.train_dataset is not None, "[!] ERROR: Training dataset not loaded. Please load the dataset beforehand for training."
 		
 		embeds, lengths, batch_labels = self.train_dataset.get_batch(batch_size, loop_dataset=loop_dataset, toTorch=True)
-		
-		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0])
-		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1])
-
-		out = self.classifier(embed_s1, embed_s2, applySoftmax=False)
+		out = self._forward_model(embeds, lengths, applySoftmax=False)
 
 		loss = self.loss_module(out, batch_labels)
-
 		_, pred_labels = torch.max(out, dim=-1)
 		acc = torch.sum(pred_labels == batch_labels).float() / pred_labels.shape[-1]
 
@@ -250,24 +261,31 @@ class SNLITask(TaskTemplate):
 
 	def _eval_batch(self, batch):
 		embeds, lengths, batch_labels = batch
-		
-		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0])
-		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1])
-
-		preds = self.classifier(embed_s1, embed_s2, applySoftmax=True)
+		preds = self._forward_model(embeds, lengths, applySoftmax=True)
 		
 		_, pred_labels = torch.max(preds, dim=-1)
 		
 		return pred_labels, batch_labels
+
+
+	def _forward_model(self, embeds, lengths, applySoftmax=False):
+		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0], word_level=self.classifier.is_word_level())
+		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1], word_level=self.classifier.is_word_level())
+
+		if not self.classifier.is_word_level():
+			out = self.classifier(embed_s1, embed_s2, applySoftmax=applySoftmax)
+		else:
+			out = self.classifier(embed_s1, lengths[0], embed_s2, lengths[1], applySoftmax=applySoftmax)
+		return out
 			
 
 class SSTTask(TaskTemplate):
 
 	NAME = "Stanford_Sentiment_Treebank"
 
-	def __init__(self, model, classifier_params, load_data=True):
-		super(SSTTask, self).__init__(model=model, load_data=load_data, name=SSTTask.NAME)
-		self.classifier = SimpleClassifier(classifier_params, 2)
+	def __init__(self, model, model_params, load_data=True):
+		super(SSTTask, self).__init__(model=model, model_params=model_params, load_data=load_data, name=SSTTask.NAME)
+		self.classifier = SimpleClassifier(self.classifier_params, 2)
 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
 		if torch.cuda.is_available():
 			self.classifier = self.classifier.cuda()

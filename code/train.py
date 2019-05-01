@@ -49,11 +49,15 @@ class MultiTaskTrain:
 			sys.exit(1) 
 		
 
-	def _create_optimizer(self, optimizer_params):
+	def _get_all_parameters(self):
 		parameters_to_optimize = list(self.model.parameters())
 		for t in self.tasks:
 			parameters_to_optimize += list(t.get_parameters())
+		return parameters_to_optimize
 
+
+	def _create_optimizer(self, optimizer_params):
+		parameters_to_optimize = self._get_all_parameters()
 		if optimizer_params["optimizer"] == MultiTaskTrain.OPTIMIZER_SGD:
 			self.optimizer = torch.optim.SGD(parameters_to_optimize, 
 											 lr=optimizer_params["lr"], 
@@ -79,9 +83,10 @@ class MultiTaskTrain:
 		self.checkpoint_path = checkpoint_path
 
 
-	def train_model(self, max_iterations=1e6, loss_freq=50, enable_tensorboard=False, eval_freq=2000, save_freq=1e5):
+	def train_model(self, max_iterations=1e6, loss_freq=50, eval_freq=2000, save_freq=1e5, enable_tensorboard=False, max_gradient_norm=10.0):
 
 		# Setup training parameters
+		parameters_to_optimize = self._get_all_parameters()
 		checkpoint_dict = self.load_recent_model()
 		start_iter = get_dict_val(checkpoint_dict, "iteration", 0)
 		evaluation_dict = get_dict_val(checkpoint_dict, "evaluation_dict", dict())
@@ -124,6 +129,7 @@ class MultiTaskTrain:
 				loss = self.multitask_sampler.sample_batch_loss(index_iter)
 				self.model.zero_grad()
 				loss.backward()
+				torch.nn.utils.clip_grad_norm_(parameters_to_optimize, max_gradient_norm)
 				self.optimizer.step()
 				end_time = time.time()
 				time_per_step[0] += end_time - start_time
@@ -223,6 +229,7 @@ if __name__ == '__main__':
 	parser.add_argument("-d", "--debug", help="Whether debug output should be activated or not", action="store_true")
 	# Tasks
 	parser.add_argument("--task_SNLI", help="Frequency with which the task SNLI should be used. Default: 0 (not used at all)", type=float, default=0)
+	parser.add_argument("--task_SNLI_head", help="Specification of SNLI task head. Use string encoding, for example: \"--task_SNLI_head model=0,dp=0.5,dim=300\". Default: use default values defined by parameters \"fc_dim\" etc.", type=str, default="")
 	parser.add_argument("--task_POS", help="Frequency with which the task POS tagging should be used. Default: 0 (not used at all)", type=float, default=0)
 	parser.add_argument("--task_SST", help="Frequency with which the task Stanford Sentiment Treebank should be used. Default: 0 (not used at all)", type=float, default=0)
 	parser.add_argument("--task_VUMetaphor", help="Frequency with which the task VUMetaphor should be used. Default: 0 (not used at all)", type=float, default=0)
@@ -235,7 +242,7 @@ if __name__ == '__main__':
 	parser.add_argument("--lr_decay", help="Decay of learning rate of the optimizer. Always applied if eval accuracy droped compared to mean of last two epochs", type=float, default=0.2)
 	parser.add_argument("--lr_decay_step", help="Number of steps after which learning rate should be decreased", type=float, default=1e6)
 	parser.add_argument("--lr_max_red_steps", help="Maximum number of times learning rate should be decreased before terminating", type=int, default=4)
-	parser.add_argument("--weight_decay", help="Weight decay of the SGD optimizer", type=float, default=1e-2)
+	parser.add_argument("--weight_decay", help="Weight decay of the optimizer", type=float, default=0.0)
 	parser.add_argument("--optimizer", help="Which optimizer to use. 0: SGD, 1: Adam", type=int, default=0)
 	parser.add_argument("--momentum", help="Apply momentum to SGD optimizer", type=float, default=0.0)
 

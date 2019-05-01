@@ -100,6 +100,18 @@ def args_to_params(args):
 	if args.model == MultiTaskEncoder.AVERAGE_WORD_VECS:
 		model_params["embed_sent_dim"] = 300
 
+	def add_head(name, string_encoding):
+		model_params[name + "_head"] = dict()
+		parsed_params = [param.split("=") for param in string_encoding.split(",") if len(param.split("="))>1]
+		param_names = [param[0] for param in parsed_params]
+		for param in parsed_params:
+			model_params[name + "_head"][param[0]] = float(param[1]) if "." in param[1] else \
+													(int(param[1]) if param[1].isdigit() else \
+													 param[1])
+		for req_param in ["fc_dropout", "fc_dim", "fc_nonlinear", "embed_sent_dim", "nli_classes"]:
+			if req_param not in param_names:
+				model_params[name + "_head"][req_param] = model_params[req_param]
+
 	optimizer_params = {
 		"optimizer": args.optimizer,
 		"lr": args.learning_rate,
@@ -113,6 +125,7 @@ def args_to_params(args):
 	task_freq_dict = {}
 	if args.task_SNLI > 0:
 		task_freq_dict[SNLITask.NAME] = args.task_SNLI
+		add_head(SNLITask.NAME, args.task_SNLI_head)
 	if args.task_SST > 0:
 		task_freq_dict[SSTTask.NAME] = args.task_SST
 
