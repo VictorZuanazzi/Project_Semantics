@@ -392,106 +392,252 @@ class VUADataset(DatasetTemplate):
         
         return embeds, lengths, batch_labels, batch_verb_p
 
+class WiCDataset(DatasetTemplate):
+
+    # Data type either train, dev or test
+    def __init__(self, data_type, data_path="../data/WiC_dataset/", shuffle_data=True):
+        """Initializes the Word in Context dataset.
+        inputs:
+        data_type: (srt), chose between the datastes 'train', 'dev', 'test'.
+        data_path: (str), path to the directory of the WiC dataset.
+        shuffle_data: (bool), True for shuffling the data, False not to.
+        """
+        super(WiCDataset, self).__init__(data_type, shuffle_data)
+            
+        if data_path is not None: 
+            #load the data from file
+            self.load_data(data_path, data_type)
+        else:
+            #empty data_list if no path is specified
+            self.data_list == list()
+        
+        super().set_data_list(self.data_list)
+        super().add_label_explanation(WiCData.LABEL_LIST)
+
+    def load_data(self, data_path, data_type):
+        """loads the data as intances of the class WiCData.
+        input:
+            data_path: (str), path to the directory of the WiC dataset.
+            data_type: (srt), chose between the datastes 'train', 'dev', 'test'.
+        output:
+            data_list: (list(WiCData)) a list of datapoints in as instances of
+            the class WiCData."""
+            
+        self.data_list = list()
+        self.num_invalids = 0
+        
+        #maps data_type to file name
+        data_name = {"train": "train/train.data.txt",
+                     "dev": "dev/dev.data.txt", 
+                     "test": "test/test.data.txt"}
+        
+        label_name ={"train": "train/train.gold.txt",
+                     "dev": "dev/dev.gold.txt", 
+                     "test": None}
+   
+        #reads the wanted data
+        data_file = open(data_path + data_name[data_type], 
+                         "r", 
+                         encoding="utf8")
+        #parse the file
+        data_lines = data_file.read()
+        data_lines = data_lines.split("\n")
+        data_line = [l.split("\t") for l in data_lines]
+        data_file.close()
+        
+        if not data_type == "test":
+            #test does not have labels
+            label_file = open(data_path + label_name[data_type], 
+                              "r", 
+                              encoding="utf8")
+            label_lines = label_file.read()
+            label_line = label_lines.split("\n")
+            #converts
+            label = [WiCData.LABEL_LIST[l] for l in label_line]
+            label_file.close()
+        else:
+            #unknown labels are given when test set is loaded.
+            label = [WiCData.LABEL_LIST[""]]*len(data_line)
+        
+        for i, data in enumerate(data_line):
+            
+            if debug_level() == 0:
+                print("Read %4.2f%% of the dataset" % (100.0 * i / len(data_line)), end="\r")
+             
+            if len(data) != 5:
+                #skip sequences that are not in the correct format
+                continue
+            
+            #gets the sentences 
+            s1 = data[3]
+            s2 = data[4]
+            
+            #get the position fo the word in each sentence
+            p1, p2 = tuple(data[2].split("-"))
+            p1 = int(p1)
+            p2 = int(p2)
+            
+            #get the word of interest
+            word = data[0]
+            pos = data[1]
+            
+            #initializes the data as an instance of the class WiCData
+            d = WiCData(word, pos, s1, s2, p1, p2, label[i])
+            
+            #appends everything in a beautiful list.
+            self.data_list.append(d)
+
+    def get_batch(self, batch_size, loop_dataset=True, toTorch=False, bidirectional=False):
+        """get a batch of examples from WiCData
+        input:
+            batch_size: (int), the number of datapoints in a batch,
+            loop_dataset: (bool), when False it ensures the batch size over all
+                batches. When True it is possible that the last batch of the 
+                epoch has fewer examples.
+            toTorch: (bool), if True the data is wraped in a torch tensor, if 
+                False numpy arrays are used instead.
+            bidirectional: (bool) deprecated, not used here. The parameter is 
+                kept in the signature to keep consistency with other classes.
+        output:
+            outputs of DatasetTemplate.sents_to_Tensors:
+                embeds: (np.array or torch.LongTensor), embeddings for the words
+                    in the sentences with dimensions (batch_size, max_len).
+                lengths: (np.array or torch.LongTensor), the length of each 
+                    sentence of the batch.
+                batch_labels:(np.array or torch.LongTensor), the labels of each
+                    sentence.
+            batch_p1, batch_p2: (np.array or torch.LongTensor), indicate the 
+                position of the word of interest.
+        """
+        if not loop_dataset:
+            batch_size = min(batch_size, len(self.perm_indices) - self.example_index)
+        
+        batch_s1 = []
+        batch_s2 = []
+        batch_p1 = []
+        batch_p2 = []
+        batch_labels = []
+        
+        for _ in range(batch_size):
+            
+            data = self._get_next_example()
+            
+            batch_s1.append(data.s1_vocab)
+            batch_s2.append(data.s2_vocab)
+            batch_p1.append(data.p1)
+            batch_p2.append(data.p2)
+            batch_labels.append(data.label)
+            
+        #converts batch_pX to torch or numpy
+        batch_p1 = DatasetTemplate.object_to_Tensors(batch_p1)
+        batch_p2 = DatasetTemplate.object_to_Tensors(batch_p2)
+        
+        #get the embeds, lengtghs and labels
+        embeds, lengths, batch_labels = DatasetTemplate.sents_to_Tensors([batch_s1, batch_s2],
+                                                batch_labels=batch_labels, 
+                                                toTorch=toTorch)
+        
+        return embeds, lengths, batch_labels, batch_p1, batch_p2  
 
 class NLIData:
 
-	LABEL_LIST = {
-		'-': -1,
-		"neutral": 0, 
-		"entailment": 1,
-		"contradiction": 2
-	}
+    LABEL_LIST = {
+        '-': -1,
+        "neutral": 0, 
+        "entailment": 1,
+        "contradiction": 2
+    }
 
-	def __init__(self, premise, hypothesis, label):
-		self.premise_words = SentData._preprocess_sentence(premise)
-		self.hypothesis_words = SentData._preprocess_sentence(hypothesis)
-		self.premise_vocab = None
-		self.hypothesis_vocab = None
-		self.label = label
+    def __init__(self, premise, hypothesis, label):
+        self.premise_words = SentData._preprocess_sentence(premise)
+        self.hypothesis_words = SentData._preprocess_sentence(hypothesis)
+        self.premise_vocab = None
+        self.hypothesis_vocab = None
+        self.label = label
 
-	def translate_to_dict(self, word_dict):
-		self.premise_vocab = SentData._sentence_to_dict(word_dict, self.premise_words)
-		self.hypothesis_vocab = SentData._sentence_to_dict(word_dict, self.hypothesis_words)
+    def translate_to_dict(self, word_dict):
+        self.premise_vocab = SentData._sentence_to_dict(word_dict, self.premise_words)
+        self.hypothesis_vocab = SentData._sentence_to_dict(word_dict, self.hypothesis_words)
 
-	def number_words_not_in_dict(self, word_dict):
-		missing_words = 0
-		for w in (self.premise_words + self.hypothesis_words):
-			if w not in word_dict:
-				missing_words += 1
-		return missing_words, (len(self.premise_words) + len(self.hypothesis_words))
-		
-	def get_data(self):
-		return self.premise_vocab, self.hypothesis_vocab, self.label
+    def number_words_not_in_dict(self, word_dict):
+        missing_words = 0
+        for w in (self.premise_words + self.hypothesis_words):
+            if w not in word_dict:
+                missing_words += 1
+        return missing_words, (len(self.premise_words) + len(self.hypothesis_words))
+        
+    def get_data(self):
+        return self.premise_vocab, self.hypothesis_vocab, self.label
 
-	def get_premise(self):
-		return " ".join(self.premise_words)
+    def get_premise(self):
+        return " ".join(self.premise_words)
 
-	def get_hypothesis(self):
-		return " ".join(self.hypothesis_words)
+    def get_hypothesis(self):
+        return " ".join(self.hypothesis_words)
 
-	@staticmethod
-	def label_to_string(label):
-		for key, val in NLIData.LABEL_LIST.items():
-			if val == label:
-				return key
+    @staticmethod
+    def label_to_string(label):
+        for key, val in NLIData.LABEL_LIST.items():
+            if val == label:
+                return key
 
 
 
 class SentData:
 
-	def __init__(self, sentence, label=None):
-		self.sent_words = SentData._preprocess_sentence(sentence)
-		self.sent_vocab = None
-		self.label = label
+    def __init__(self, sentence, label=None):
+        self.sent_words = SentData._preprocess_sentence(sentence)
+        self.sent_vocab = None
+        self.label = label
 
-	def translate_to_dict(self, word_dict):
-		self.sent_vocab = SentData._sentence_to_dict(word_dict, self.sent_words)
+    def translate_to_dict(self, word_dict):
+        self.sent_vocab = SentData._sentence_to_dict(word_dict, self.sent_words)
 
-	def number_words_not_in_dict(self, word_dict):
-		missing_words = 0
-		for w in self.sent_words:
-			if w not in word_dict:
-				missing_words += 1
-		return missing_words, len(self.sent_words)
+    def number_words_not_in_dict(self, word_dict):
+        missing_words = 0
+        for w in self.sent_words:
+            if w not in word_dict:
+                missing_words += 1
+        return missing_words, len(self.sent_words)
 
-	@staticmethod
-	def _preprocess_sentence(sent):
-		sent_words = list(sent.lower().strip().split(" "))
-		if "." in sent_words[-1] and len(sent_words[-1]) > 1:
-			sent_words[-1] = sent_words[-1].replace(".","")
-			sent_words.append(".")
-		sent_words = [w for w in sent_words if len(w) > 0]
-		for i in range(len(sent_words)):
-			if len(sent_words[i]) > 1 and "." in sent_words[i]:
-				sent_words[i] = sent_words[i].replace(".","")
-		return sent_words
+    @staticmethod
+    def _preprocess_sentence(sent):
+        sent_words = list(sent.lower().strip().split(" "))
+        if "." in sent_words[-1] and len(sent_words[-1]) > 1:
+            sent_words[-1] = sent_words[-1].replace(".","")
+            sent_words.append(".")
+        sent_words = [w for w in sent_words if len(w) > 0]
+        for i in range(len(sent_words)):
+            if len(sent_words[i]) > 1 and "." in sent_words[i]:
+                sent_words[i] = sent_words[i].replace(".","")
+        return sent_words
 
-	@staticmethod
-	def _sentence_to_dict(word_dict, sent):
-		vocab_words = list()
-		vocab_words += [word_dict['<s>']]
-		vocab_words += SentData._word_seq_to_dict(sent, word_dict)
-		vocab_words += [word_dict['</s>']]
-		vocab_words = np.array(vocab_words, dtype=np.int32)
-		return vocab_words
+    @staticmethod
+    def _sentence_to_dict(word_dict, sent):
+        vocab_words = list()
+        vocab_words += [word_dict['<s>']]
+        vocab_words += SentData._word_seq_to_dict(sent, word_dict)
+        vocab_words += [word_dict['</s>']]
+        vocab_words = np.array(vocab_words, dtype=np.int32)
+        return vocab_words
 
-	@staticmethod
-	def _word_seq_to_dict(word_seq, word_dict):
-		vocab_words = list()
-		for w in word_seq:
-			if len(w) <= 0:
-				continue
-			if w in word_dict:
-				vocab_words.append(word_dict[w])
-			elif "-" in w:
-				vocab_words += SentData._word_seq_to_dict(w.split("-"), word_dict)
-			elif "/" in w:
-				vocab_words += SentData._word_seq_to_dict(w.split("/"), word_dict)
-			else:
-				subword = re.sub('\W+','', w)
-				if subword in word_dict:
-					vocab_words.append(word_dict[subword])
-		return vocab_words
+    @staticmethod
+    def _word_seq_to_dict(word_seq, word_dict):
+        vocab_words = list()
+        for w in word_seq:
+            if len(w) <= 0:
+                continue
+            if w in word_dict:
+                vocab_words.append(word_dict[w])
+            elif "-" in w:
+                vocab_words += SentData._word_seq_to_dict(w.split("-"), word_dict)
+            elif "/" in w:
+                vocab_words += SentData._word_seq_to_dict(w.split("/"), word_dict)
+            else:
+                subword = re.sub('\W+','', w)
+                if subword in word_dict:
+                    vocab_words.append(word_dict[subword])
+        return vocab_words
 
 class VUAData:
     
@@ -529,53 +675,100 @@ class VUAData:
             if val == label:
                 return key
 
+class WiCData:
+    
+    LABEL_LIST = {
+        "": -1, 
+        "F": 0,
+        "T": 1
+    }
+
+    def __init__(self, word, pos, s1, s2, p1, p2, label):
+        
+        self.s1_words = SentData._preprocess_sentence(s1)
+        self.s2_words = SentData._preprocess_sentence(s2)
+        self.s1_vocab = None 
+        self.s2_vocab = None
+        self.p1 = p1
+        self.p2 = p2
+        self.label = label
+        self.word = word
+        self.pos = pos
+
+    def translate_to_dict(self, word_dict):
+        self.s1_vocab = SentData._sentence_to_dict(word_dict, 
+                                                   self.s1_words)
+        self.s2_vocab = SentData._sentence_to_dict(word_dict, 
+                                                   self.s2_words)
+
+    def number_words_not_in_dict(self, word_dict):
+        missing_words = 0
+        for w in (self.s1_words + self.s2_words):
+            if w not in word_dict:
+                missing_words += 1
+        return missing_words, (len(self.s1_words) + len(self.s2_words))
+        
+    def get_data(self):
+        return self.s1_vocab, self.s2_vocab, self.label
+
+    def get_s1(self):
+        return " ".join(self.s1_words)
+    
+    def get_s2(self):
+        return " ".join(self.s2_words)
+
+    @staticmethod
+    def label_to_string(label):
+        for key, val in WiCData.LABEL_LIST.items():
+            if val == label:
+                return key
 # class SeqData:
 
-# 	def __init__(self, sentence, label):
-# 		self.sent_words = SeqData._preprocess_sentence(sentence)
-# 		self.label = label
-# 		assert len(self.label) == len(self.sent_words), "Number of labels have to fit to number of words in the sentence"
-# 		self.sent_vocab = None
+#     def __init__(self, sentence, label):
+#         self.sent_words = SeqData._preprocess_sentence(sentence)
+#         self.label = label
+#         assert len(self.label) == len(self.sent_words), "Number of labels have to fit to number of words in the sentence"
+#         self.sent_vocab = None
 
-# 	def translate_to_dict(self, word_dict):
-# 		self.sent_vocab = SentData._sentence_to_dict(word_dict, self.sent_words)
+#     def translate_to_dict(self, word_dict):
+#         self.sent_vocab = SentData._sentence_to_dict(word_dict, self.sent_words)
 
-# 	@staticmethod
-# 	def _preprocess_sentence(sent, labels):
-# 		sent_words = list(sent.lower().strip().split(" "))
-# 		if "." in sent_words[-1] and len(sent_words[-1]) > 1:
-# 			sent_words[-1] = sent_words[-1].replace(".","")
-# 			sent_words.append(".")
-# 		sent_words = [w for w in sent_words if len(w) > 0]
-# 		for i in range(len(sent_words)):
-# 			if len(sent_words[i]) > 1 and "." in sent_words[i]:
-# 				sent_words[i] = sent_words[i].replace(".","")
-# 		return sent_words
+#     @staticmethod
+#     def _preprocess_sentence(sent, labels):
+#         sent_words = list(sent.lower().strip().split(" "))
+#         if "." in sent_words[-1] and len(sent_words[-1]) > 1:
+#             sent_words[-1] = sent_words[-1].replace(".","")
+#             sent_words.append(".")
+#         sent_words = [w for w in sent_words if len(w) > 0]
+#         for i in range(len(sent_words)):
+#             if len(sent_words[i]) > 1 and "." in sent_words[i]:
+#                 sent_words[i] = sent_words[i].replace(".","")
+#         return sent_words
 
-# 	@staticmethod
-# 	def _sentence_to_dict(word_dict, sent, labels):
-# 		vocab_words = list()
-# 		vocab_words += [word_dict['<s>']]
-# 		vocab_words += SentData._word_seq_to_dict(sent, word_dict)
-# 		vocab_words += [word_dict['</s>']]
-# 		vocab_words = np.array(vocab_words, dtype=np.int32)
+#     @staticmethod
+#     def _sentence_to_dict(word_dict, sent, labels):
+#         vocab_words = list()
+#         vocab_words += [word_dict['<s>']]
+#         vocab_words += SentData._word_seq_to_dict(sent, word_dict)
+#         vocab_words += [word_dict['</s>']]
+#         vocab_words = np.array(vocab_words, dtype=np.int32)
 
-# 		return vocab_words
+#         return vocab_words
 
-# 	@staticmethod
-# 	def _word_seq_to_dict(word_seq, word_dict, labels):
-# 		vocab_words = list()
-# 		for w_index, w in enumerate(word_seq):
-# 			if len(w) <= 0:
-# 				continue
-# 			if w in word_dict:
-# 				vocab_words.append(word_dict[w])
-# 			elif "-" in w:
-# 				vocab_words += SentData._word_seq_to_dict(w.split("-"), word_dict, labels=[labels[w_index]])
-# 			elif "/" in w:
-# 				vocab_words += SentData._word_seq_to_dict(w.split("/"), word_dict)
-# 			else:
-# 				subword = re.sub('\W+','', w)
-# 				if subword in word_dict:
-# 					vocab_words.append(word_dict[subword])
-# 		return vocab_words
+#     @staticmethod
+#     def _word_seq_to_dict(word_seq, word_dict, labels):
+#         vocab_words = list()
+#         for w_index, w in enumerate(word_seq):
+#             if len(w) <= 0:
+#                 continue
+#             if w in word_dict:
+#                 vocab_words.append(word_dict[w])
+#             elif "-" in w:
+#                 vocab_words += SentData._word_seq_to_dict(w.split("-"), word_dict, labels=[labels[w_index]])
+#             elif "/" in w:
+#                 vocab_words += SentData._word_seq_to_dict(w.split("/"), word_dict)
+#             else:
+#                 subword = re.sub('\W+','', w)
+#                 if subword in word_dict:
+#                     vocab_words.append(word_dict[subword])
+#         return vocab_words
