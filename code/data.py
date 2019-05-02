@@ -499,7 +499,7 @@ class VUAData:
         for w in (self.sentence_words):
             if w not in word_dict:
                 missing_words += 1
-        return missing_words, len(self.premise_words)
+        return missing_words, len(self.sentence_words)
         
     def get_data(self):
         return self.sentence_vocab, self.label
