@@ -21,14 +21,14 @@ def debug_level():
 	global DEBUG_LEVEL
 	return DEBUG_LEVEL
 
-def build_vocab(word_list, glove_path='../glove.840B.300d.txt'):
+def build_vocab(word_list, glove_path='./glove.840B.300d.txt'):
 	word2vec = {}
 	num_ignored_words = 0
 	num_missed_words = 0
 	num_found_words = 0
 	word_list = set(word_list)
 	overall_num_words = len(word_list)
-	with open(glove_path, "r") as f:
+	with open(glove_path, "r", encoding='utf8') as f:
 		lines = f.readlines()
 		number_lines = len(lines)
 		for i, line in enumerate(lines):
@@ -47,7 +47,7 @@ def build_vocab(word_list, glove_path='../glove.840B.300d.txt'):
 				num_ignored_words += 1
 
 
-	spell = SpellChecker()
+	# spell = SpellChecker()
 	example_missed_words = list()
 	for word in word_list:
 		if word not in word2vec:
@@ -68,10 +68,10 @@ def load_word2vec_from_file(word_file="small_glove_words.txt", numpy_file="small
 	word2vec = dict()
 	word2id = dict()
 	word_vecs = np.load(numpy_file)
-	with open(word_file, "r") as f:
+	with open(word_file, "r", encoding='utf8') as f:
 		for i, l in enumerate(f):
 			word2vec[l.replace("\n","")] = word_vecs[i,:]
-	index = 0
+	index = 1  # changed from 0 to avoid confusion with padding index
 	for key, _ in word2vec.items():
 		word2id[key] = index
 		index += 1
@@ -85,7 +85,7 @@ def save_word2vec_as_GloVe(output_file="small_glove_torchnlp.txt"):
 	s = ""
 	for key, val in word2vec.items():
 		s += key + " " + " ".join([("%g" % (x)) for x in val]) + "\n"
-	with open(output_file, "w") as f:
+	with open(output_file, "w", encoding='utf8') as f:
 		f.write(s)
 
 
@@ -101,15 +101,15 @@ def create_word2vec_vocab():
 		filename = name + "_word_list.txt"
 		if True or not os.path.isfile(filename):
 			word_list = dataset.get_word_list()
-			with open(filename, "w") as f:
+			with open(filename, "w", encoding='utf8') as f:
 				f.write("\n".join(word_list))
 
-	train_word_list = [l.rstrip() for l in open("train_word_list.txt", "r")]
-	test_word_list = [l.rstrip() for l in open("test_word_list.txt", "r")]
-	val_word_list = [l.rstrip() for l in open("val_word_list.txt", "r")]
-	senteval_word_list = [l.rstrip() for l in open("senteval_unknown_words.txt")]
+	train_word_list = [l.rstrip() for l in open("train_word_list.txt", "r", encoding='utf8')]
+	test_word_list = [l.rstrip() for l in open("test_word_list.txt", "r", encoding='utf8')]
+	val_word_list = [l.rstrip() for l in open("val_word_list.txt", "r", encoding='utf8')]
+	senteval_word_list = []  # [l.rstrip() for l in open("senteval_unknown_words.txt")]
 	if os.path.isfile("small_glove_words.txt"):
-		old_glove = [l.strip() for l in open("small_glove_words.txt")]
+		old_glove = [l.strip() for l in open("small_glove_words.txt", encoding='utf8')]
 		print("Found " + str(len(old_glove)) + " words in old GloVe embeddings")
 	else:
 		old_glove = []
@@ -126,7 +126,7 @@ def create_word2vec_vocab():
 
 	voc = build_vocab(word_list)
 	np_word_list = []
-	with open('small_glove_words.txt', 'w') as f:
+	with open('small_glove_words.txt', 'w', encoding='utf8') as f:
 		# json.dump(voc, f)
 		for key, val in voc.items():
 			f.write(key + "\n")
@@ -278,7 +278,7 @@ class DatasetTemplate:
 class SNLIDataset(DatasetTemplate):
 
 	# Data type either train, dev or test
-	def __init__(self, data_type, data_path="../snli_1.0", add_suffix=True, shuffle_data=True):
+	def __init__(self, data_type, data_path="./snli_1.0", add_suffix=True, shuffle_data=True):
 		super(SNLIDataset, self).__init__(data_type, shuffle_data)
 		if data_path is not None:
 			self.load_data(data_path, data_type)
@@ -290,9 +290,9 @@ class SNLIDataset(DatasetTemplate):
 	def load_data(self, data_path, data_type):
 		self.data_list = list()
 		self.num_invalids = 0
-		s1 = [line.rstrip() for line in open(data_path + "/s1." + data_type, 'r')]
-		s2 = [line.rstrip() for line in open(data_path + "/s2." + data_type, 'r')]
-		labels = [NLIData.LABEL_LIST[line.rstrip('\n')] for line in open(data_path + "/labels." + data_type, 'r')]
+		s1 = [line.rstrip() for line in open(data_path + "/s1." + data_type, 'r', encoding='utf8')]
+		s2 = [line.rstrip() for line in open(data_path + "/s2." + data_type, 'r', encoding='utf8')]
+		labels = [NLIData.LABEL_LIST[line.rstrip('\n')] for line in open(data_path + "/labels." + data_type, 'r', encoding='utf8')]
 		
 		i = 0
 		for prem, hyp, lab in zip(s1, s2, labels):

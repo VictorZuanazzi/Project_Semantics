@@ -28,7 +28,8 @@ class SNLITrain:
 
 	def __init__(self, model_type, model_params, optimizer_params, batch_size, checkpoint_path, debug=False):
 		self.train_dataset, _, _, _, self.word2id, wordvec_tensor = load_SNLI_datasets(debug_dataset = debug)
-		self.model = NLIModel(model_type, model_params, wordvec_tensor)
+		self.id2word = {v: k for k, v in self.word2id.items()}
+		self.model = NLIModel(model_type, model_params, wordvec_tensor, self.id2word)  # fixme
 		self.evaluater = SNLIEval(self.model)
 		self.batch_size = batch_size
 		self._create_optimizer(optimizer_params)

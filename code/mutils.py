@@ -60,8 +60,9 @@ def load_model(checkpoint_path, model=None, optimizer=None, lr_scheduler=None, l
 
 def load_model_from_args(args, checkpoint_path=None, load_best_model=False):
 	model_type, model_params, optimizer_params = args_to_params(args)
-	_, _, _, _, _, wordvec_tensor = load_SNLI_datasets(debug_dataset = False)
-	model = NLIModel(model_type, model_params, wordvec_tensor)
+	_, _, _, _, word2id, wordvec_tensor = load_SNLI_datasets(debug_dataset = False)
+	id2word = {v: k for k, v in word2id.items()}
+	model = NLIModel(model_type, model_params, wordvec_tensor, id2word)
 	if checkpoint_path is not None:
 		load_model(checkpoint_path, model=model, load_best_model=load_best_model)
 	return model
@@ -81,15 +82,15 @@ def load_args(checkpoint_path):
 def args_to_params(args):
 	# Define model parameters
 	model_params = {
-		"embed_word_dim": 300,
-		"embed_sent_dim": args.embed_dim,
+		"embed_word_dim": 1324,  # fixme and next line
+		"embed_sent_dim": 1324,  # args.embed_dim,
 		"fc_dropout": args.fc_dropout, 
 		"fc_dim": args.fc_dim,
 		"fc_nonlinear": args.fc_nonlinear,
 		"n_classes": 3
 	}
 	if args.model == NLIModel.AVERAGE_WORD_VECS:
-		model_params["embed_sent_dim"] = 300
+		model_params["embed_sent_dim"] = 1324  # fixme
 
 	optimizer_params = {
 		"optimizer": args.optimizer,
