@@ -383,12 +383,7 @@ class VUADataset(DatasetTemplate):
             batch_labels.append(data.label)
         
         #converts batch_verb_p to torch or numpy
-        if toTorch:
-            batch_verb_p = torch.LongTensor(batch_verb_p)
-            if torch.cuda.is_available():
-                batch_verb_p = batch_verb_p.cuda()
-        else:
-            batch_verb_p = np.array(batch_verb_p)
+        batch_verb_p = DatasetTemplate.object_to_Tensors(batch_verb_p)
         
         #get the embeds, lengtghs and labels
         embeds, lengths, batch_labels = DatasetTemplate.sents_to_Tensors(batch_sentence, 
