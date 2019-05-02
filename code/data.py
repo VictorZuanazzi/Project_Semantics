@@ -6,6 +6,7 @@ import re
 import sys
 from random import shuffle
 from vocab import load_word2vec_from_file
+import pandas as pd
 
 # 0 => Full debug
 # 1 => Reduced output
@@ -13,12 +14,12 @@ from vocab import load_word2vec_from_file
 DEBUG_LEVEL = 0
 
 def set_debug_level(level):
-	global DEBUG_LEVEL
-	DEBUG_LEVEL = level
+    global DEBUG_LEVEL
+    DEBUG_LEVEL = level
 
 def debug_level():
-	global DEBUG_LEVEL
-	return DEBUG_LEVEL
+    global DEBUG_LEVEL
+    return DEBUG_LEVEL
 
 
 ###############################
@@ -27,244 +28,264 @@ def debug_level():
 
 class DatasetHandler:
 
-	SNLI_DATASETS = None
-	SNLI_EXTRA_DATASETS = None
-	SST_DATASETS = None
+    SNLI_DATASETS = None
+    SNLI_EXTRA_DATASETS = None
+    SST_DATASETS = None
 
-	@staticmethod
-	def _load_all_type_datasets(dataset_fun, debug_dataset=False, data_types=None):
-		_, word2id_dict, _ = load_word2vec_from_file()
-		dataset_list = list()
-		if data_types is None:
-			data_types = ['train' if not debug_dataset else 'dev', 'dev', 'test']
-		for data_type in data_types:
-			dataset = dataset_fun(data_type, shuffle_data=('train' in data_type))
-			dataset.print_statistics()
-			dataset.set_vocabulary(word2id_dict)
-			dataset_list.append(dataset)
-		return dataset_list
+    @staticmethod
+    def _load_all_type_datasets(dataset_fun, debug_dataset=False, data_types=None):
+        _, word2id_dict, _ = load_word2vec_from_file()
+        dataset_list = list()
+        if data_types is None:
+            data_types = ['train' if not debug_dataset else 'dev', 'dev', 'test']
+        for data_type in data_types:
+            dataset = dataset_fun(data_type, shuffle_data=('train' in data_type))
+            dataset.print_statistics()
+            dataset.set_vocabulary(word2id_dict)
+            dataset_list.append(dataset)
+        return dataset_list
 
-	@staticmethod
-	def load_SNLI_datasets(debug_dataset=False):
-		if DatasetHandler.SNLI_DATASETS is None:
-			DatasetHandler.SNLI_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, debug_dataset=debug_dataset)
-		return DatasetHandler.SNLI_DATASETS[0], DatasetHandler.SNLI_DATASETS[1], DatasetHandler.SNLI_DATASETS[2]
+    @staticmethod
+    def load_SNLI_datasets(debug_dataset=False):
+        if DatasetHandler.SNLI_DATASETS is None:
+            DatasetHandler.SNLI_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, debug_dataset=debug_dataset)
+        return DatasetHandler.SNLI_DATASETS[0], DatasetHandler.SNLI_DATASETS[1], DatasetHandler.SNLI_DATASETS[2]
 
-	@staticmethod
-	def load_SNLI_splitted_datasets():
-		if DatasetHandler.SNLI_EXTRA_DATASETS is None:
-			DatasetHandler.SNLI_EXTRA_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, data_types=['test_hard', 'test_easy']) 
-		return DatasetHandler.SNLI_EXTRA_DATASETS[0], DatasetHandler.SNLI_EXTRA_DATASETS[1]
+    @staticmethod
+    def load_SNLI_splitted_datasets():
+        if DatasetHandler.SNLI_EXTRA_DATASETS is None:
+            DatasetHandler.SNLI_EXTRA_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, data_types=['test_hard', 'test_easy']) 
+        return DatasetHandler.SNLI_EXTRA_DATASETS[0], DatasetHandler.SNLI_EXTRA_DATASETS[1]
 
-	@staticmethod
-	def load_SST_datasets(debug_dataset=False):
-		if DatasetHandler.SST_DATASETS is None:
-			DatasetHandler.SST_DATASETS = DatasetHandler._load_all_type_datasets(SSTDataset, debug_dataset=debug_dataset)
-		return DatasetHandler.SST_DATASETS[0], DatasetHandler.SST_DATASETS[1], DatasetHandler.SST_DATASETS[2]
+    @staticmethod
+    def load_SST_datasets(debug_dataset=False):
+        if DatasetHandler.SST_DATASETS is None:
+            DatasetHandler.SST_DATASETS = DatasetHandler._load_all_type_datasets(SSTDataset, debug_dataset=debug_dataset)
+        return DatasetHandler.SST_DATASETS[0], DatasetHandler.SST_DATASETS[1], DatasetHandler.SST_DATASETS[2]
 
 
 class DatasetTemplate:
 
-	def __init__(self, data_type="train", shuffle_data=True):
-		self.data_type = data_type
-		self.shuffle_data = shuffle_data
-		self.set_data_list(list())
-		self.label_dict = dict()
-		self.num_invalids = 0
+    def __init__(self, data_type="train", shuffle_data=True):
+        self.data_type = data_type
+        self.shuffle_data = shuffle_data
+        self.set_data_list(list())
+        self.label_dict = dict()
+        self.num_invalids = 0
 
-	def set_data_list(self, new_data):
-		self.data_list = new_data
-		self.example_index = 0
-		self.perm_indices = list(range(len(self.data_list)))
-		if self.shuffle_data:
-			shuffle(self.perm_indices)
+    def set_data_list(self, new_data):
+        self.data_list = new_data
+        self.example_index = 0
+        self.perm_indices = list(range(len(self.data_list)))
+        if self.shuffle_data:
+            shuffle(self.perm_indices)
 
-	def _get_next_example(self):
-		exmp = self.data_list[self.perm_indices[self.example_index]]
-		self.example_index += 1
-		if self.example_index >= len(self.perm_indices):
-			if self.shuffle_data:
-				shuffle(self.perm_indices)
-			self.example_index = 0
-		return exmp
+    def _get_next_example(self):
+        exmp = self.data_list[self.perm_indices[self.example_index]]
+        self.example_index += 1
+        if self.example_index >= len(self.perm_indices):
+            if self.shuffle_data:
+                shuffle(self.perm_indices)
+            self.example_index = 0
+        return exmp
 
-	@staticmethod
-	def sents_to_Tensors(batch_stacked_sents, batch_labels=None, toTorch=False):
-		lengths = []
-		embeds = []
-		for batch_sents in batch_stacked_sents:
-			lengths_sents = np.array([x.shape[0] for x in batch_sents])
-			max_len = np.max(lengths_sents)
-			sent_embeds = np.zeros((len(batch_sents), max_len), dtype=np.int32)
-			for s_index, sent in enumerate(batch_sents):
-				sent_embeds[s_index, :sent.shape[0]] = sent
-			if toTorch:
-				sent_embeds = torch.LongTensor(sent_embeds)
-				lengths_sents = torch.LongTensor(lengths_sents)
-				if torch.cuda.is_available():
-					sent_embeds = sent_embeds.cuda()
-					lengths_sents = lengths_sents.cuda()
-			lengths.append(lengths_sents)
-			embeds.append(sent_embeds)
-		if batch_labels is not None and toTorch:
-			batch_labels = torch.LongTensor(np.array(batch_labels))
-			if torch.cuda.is_available():
-				batch_labels = batch_labels.cuda()
-		return embeds, lengths, batch_labels
+    @staticmethod
+    def sents_to_Tensors(batch_stacked_sents, batch_labels=None, toTorch=False):
+        lengths = []
+        embeds = []
+        for batch_sents in batch_stacked_sents:
+            lengths_sents = np.array([x.shape[0] for x in batch_sents])
+            max_len = np.max(lengths_sents)
+            sent_embeds = np.zeros((len(batch_sents), max_len), dtype=np.int32)
+            for s_index, sent in enumerate(batch_sents):
+                sent_embeds[s_index, :sent.shape[0]] = sent
+            if toTorch:
+                sent_embeds = torch.LongTensor(sent_embeds)
+                lengths_sents = torch.LongTensor(lengths_sents)
+                if torch.cuda.is_available():
+                    sent_embeds = sent_embeds.cuda()
+                    lengths_sents = lengths_sents.cuda()
+            lengths.append(lengths_sents)
+            embeds.append(sent_embeds)
+        if batch_labels is not None and toTorch:
+            batch_labels = torch.LongTensor(np.array(batch_labels))
+            if torch.cuda.is_available():
+                batch_labels = batch_labels.cuda()
+        return embeds, lengths, batch_labels
+    
+    @staticmethod
+    def object_to_Tensors(some_object, toTorch=False):
+        """wraps the given object in a torch tensor or numpy array.
+        inputs:
+            some_object (list(int), tuple(int), int), objec to be wraped.
+            toTorch (bool), if True wraps some_object with a torch tensor, if False
+                wraps it with an numpy array
+        output:
+            some_boject (torch.LongTensor(some_object) or np.array(some_object)), 
+                if cuda is available, torch tensor is returned in cuda.
+        """
+        if toTorch:
+            some_object = torch.LongTensor(some_object)
+            if torch.cuda.is_available():
+                some_object = some_object.cuda()
+        else:
+            some_object = np.array(some_object)
+            
+        return some_object
 
-	def get_num_examples(self):
-		return len(self.data_list)
+    def get_num_examples(self):
+        return len(self.data_list)
 
-	def get_word_list(self):
-		all_words = dict()
-		for i, data in enumerate(self.data_list):
-			if debug_level() == 0:
-				print("Processed %4.2f%% of the dataset" % (100.0 * i / len(self.data_list)), end="\r")
-			if isinstance(data, NLIData):
-				data_words = data.premise_words + data.hypothesis_words
-			else:
-				data_words = data.sent_words
-			for w in data_words:
-				if w not in all_words:
-					all_words[w] = ''
-		all_words = list(all_words.keys())
-		print("Found " + str(len(all_words)) + " unique words")
-		return all_words
+    def get_word_list(self):
+        all_words = dict()
+        for i, data in enumerate(self.data_list):
+            if debug_level() == 0:
+                print("Processed %4.2f%% of the dataset" % (100.0 * i / len(self.data_list)), end="\r")
+            if isinstance(data, NLIData):
+                data_words = data.premise_words + data.hypothesis_words
+            else:
+                data_words = data.sent_words
+            for w in data_words:
+                if w not in all_words:
+                    all_words[w] = ''
+        all_words = list(all_words.keys())
+        print("Found " + str(len(all_words)) + " unique words")
+        return all_words
 
-	def set_vocabulary(self, word2vec):
-		missing_words = 0
-		overall_words = 0
-		for data in self.data_list:
-			data.translate_to_dict(word2vec)
-			mw, ow = data.number_words_not_in_dict(word2vec)
-			missing_words += mw 
-			overall_words += ow 
-		print("Amount of missing words: %4.2f%%" % (100.0 * missing_words / overall_words))
+    def set_vocabulary(self, word2vec):
+        missing_words = 0
+        overall_words = 0
+        for data in self.data_list:
+            data.translate_to_dict(word2vec)
+            mw, ow = data.number_words_not_in_dict(word2vec)
+            missing_words += mw 
+            overall_words += ow 
+        print("Amount of missing words: %4.2f%%" % (100.0 * missing_words / overall_words))
 
-	def get_batch(self, batch_size, loop_dataset=True, toTorch=False):
-		# Default: assume that dataset entries contain object of SentData
-		if not loop_dataset:
-			batch_size = min(batch_size, len(self.perm_indices) - self.example_index)
-		batch_sents = []
-		batch_labels = []
-		for _ in range(batch_size):
-			data = self._get_next_example()
-			batch_sents.append(data.sent_vocab)
-			batch_labels.append(data.label)
-		embeds, lengths, labels = DatasetTemplate.sents_to_Tensors([batch_sents], batch_labels=batch_labels, toTorch=toTorch)
-		return (embeds[0], lengths[0], labels)
+    def get_batch(self, batch_size, loop_dataset=True, toTorch=False):
+        # Default: assume that dataset entries contain object of SentData
+        if not loop_dataset:
+            batch_size = min(batch_size, len(self.perm_indices) - self.example_index)
+        batch_sents = []
+        batch_labels = []
+        for _ in range(batch_size):
+            data = self._get_next_example()
+            batch_sents.append(data.sent_vocab)
+            batch_labels.append(data.label)
+        embeds, lengths, labels = DatasetTemplate.sents_to_Tensors([batch_sents], batch_labels=batch_labels, toTorch=toTorch)
+        return (embeds[0], lengths[0], labels)
 
-	def get_num_classes(self):
-		c = 0
-		for key, val in self.label_dict.items():
-			if val >= 0:
-				c += 1
-		return c
+    def get_num_classes(self):
+        c = 0
+        for key, val in self.label_dict.items():
+            if val >= 0:
+                c += 1
+        return c
 
-	def add_label_explanation(self, label_dict):
-		# The keys should be the labels, the explanation strings
-		if isinstance(list(label_dict.keys())[0], str) and not isinstance(list(label_dict.values())[0], str):
-			label_dict = {v: k for k, v in label_dict.items()}
-		self.label_dict = label_dict
+    def add_label_explanation(self, label_dict):
+        # The keys should be the labels, the explanation strings
+        if isinstance(list(label_dict.keys())[0], str) and not isinstance(list(label_dict.values())[0], str):
+            label_dict = {v: k for k, v in label_dict.items()}
+        self.label_dict = label_dict
 
-	def label_to_string(self, label):
-		if label in self.label_dict:
-			return self.label_dict[label]
-		else:
-			return str(label)
+    def label_to_string(self, label):
+        if label in self.label_dict:
+            return self.label_dict[label]
+        else:
+            return str(label)
 
-	def print_statistics(self):
-		print("="*50)
-		print("Dataset statistics " + self.data_type)
-		print("-"*50)
-		print("Number of examples: " + str(len(self.data_list)))
-		print("Labelwise amount:")
-		for key, val in self.label_dict.items():
-			print("\t- " + val + ": " + str(sum([d.label == key for d in self.data_list])))
-		print("Number of invalid examples: " + str(self.num_invalids))
-		print("="*50)
+    def print_statistics(self):
+        print("="*50)
+        print("Dataset statistics " + self.data_type)
+        print("-"*50)
+        print("Number of examples: " + str(len(self.data_list)))
+        print("Labelwise amount:")
+        for key, val in self.label_dict.items():
+            print("\t- " + val + ": " + str(sum([d.label == key for d in self.data_list])))
+        print("Number of invalid examples: " + str(self.num_invalids))
+        print("="*50)
 
 
 class SNLIDataset(DatasetTemplate):
 
-	# Data type either train, dev or test
-	def __init__(self, data_type, data_path="../data/snli_1.0", add_suffix=True, shuffle_data=True):
-		super(SNLIDataset, self).__init__(data_type, shuffle_data)
-		if data_path is not None:
-			self.load_data(data_path, data_type)
-		else:
-			self.data_list == list()
-		super().set_data_list(self.data_list)
-		super().add_label_explanation(NLIData.LABEL_LIST)
+    # Data type either train, dev or test
+    def __init__(self, data_type, data_path="../data/snli_1.0", add_suffix=True, shuffle_data=True):
+        super(SNLIDataset, self).__init__(data_type, shuffle_data)
+        if data_path is not None:
+            self.load_data(data_path, data_type)
+        else:
+            self.data_list == list()
+        super().set_data_list(self.data_list)
+        super().add_label_explanation(NLIData.LABEL_LIST)
 
-	def load_data(self, data_path, data_type):
-		self.data_list = list()
-		self.num_invalids = 0
-		s1 = [line.rstrip() for line in open(data_path + "/s1." + data_type, 'r')]
-		s2 = [line.rstrip() for line in open(data_path + "/s2." + data_type, 'r')]
-		labels = [NLIData.LABEL_LIST[line.rstrip('\n')] for line in open(data_path + "/labels." + data_type, 'r')]
-		
-		i = 0
-		for prem, hyp, lab in zip(s1, s2, labels):
-			if debug_level() == 0:
-				print("Read %4.2f%% of the dataset" % (100.0 * i / len(s1)), end="\r")
-			i += 1
-			if lab == -1:
-				self.num_invalids += 1
-				continue
-			d = NLIData(premise = prem, hypothesis = hyp, label = lab)
-			self.data_list.append(d)
+    def load_data(self, data_path, data_type):
+        self.data_list = list()
+        self.num_invalids = 0
+        s1 = [line.rstrip() for line in open(data_path + "/s1." + data_type, 'r')]
+        s2 = [line.rstrip() for line in open(data_path + "/s2." + data_type, 'r')]
+        labels = [NLIData.LABEL_LIST[line.rstrip('\n')] for line in open(data_path + "/labels." + data_type, 'r')]
+        
+        i = 0
+        for prem, hyp, lab in zip(s1, s2, labels):
+            if debug_level() == 0:
+                print("Read %4.2f%% of the dataset" % (100.0 * i / len(s1)), end="\r")
+            i += 1
+            if lab == -1:
+                self.num_invalids += 1
+                continue
+            d = NLIData(premise = prem, hypothesis = hyp, label = lab)
+            self.data_list.append(d)
 
-	def get_batch(self, batch_size, loop_dataset=True, toTorch=False, bidirectional=False):
-		# Output sentences with dimensions (bsize, max_len)
-		if not loop_dataset:
-			batch_size = min(batch_size, len(self.perm_indices) - self.example_index)
-		batch_s1 = []
-		batch_s2 = []
-		batch_labels = []
-		for _ in range(batch_size):
-			data = self._get_next_example()
-			batch_s1.append(data.premise_vocab)
-			batch_s2.append(data.hypothesis_vocab)
-			batch_labels.append(data.label)
-			if bidirectional:
-				batch_s1.append(data.premise_vocab[::-1])
-				batch_s2.append(data.hypothesis_vocab[::-1])
-		return DatasetTemplate.sents_to_Tensors([batch_s1, batch_s2], batch_labels=batch_labels, toTorch=toTorch)
+    def get_batch(self, batch_size, loop_dataset=True, toTorch=False, bidirectional=False):
+        # Output sentences with dimensions (bsize, max_len)
+        if not loop_dataset:
+            batch_size = min(batch_size, len(self.perm_indices) - self.example_index)
+        batch_s1 = []
+        batch_s2 = []
+        batch_labels = []
+        for _ in range(batch_size):
+            data = self._get_next_example()
+            batch_s1.append(data.premise_vocab)
+            batch_s2.append(data.hypothesis_vocab)
+            batch_labels.append(data.label)
+            if bidirectional:
+                batch_s1.append(data.premise_vocab[::-1])
+                batch_s2.append(data.hypothesis_vocab[::-1])
+        return DatasetTemplate.sents_to_Tensors([batch_s1, batch_s2], batch_labels=batch_labels, toTorch=toTorch)
 
 
 class SSTDataset(DatasetTemplate):
 
-	LABEL_LIST = {
-		0 : "Negative",
-		1 : "Positive"
-	}
+    LABEL_LIST = {
+        0 : "Negative",
+        1 : "Positive"
+    }
 
-	# Data type either train, dev or test
-	def __init__(self, data_type, data_path="../data/SST", add_suffix=True, shuffle_data=True):
-		super(SSTDataset, self).__init__(data_type, shuffle_data)
-		if data_path is not None:
-			self.load_data(data_path, data_type)
-		else:
-			self.data_list == list()
-		super().set_data_list(self.data_list)
-		super().add_label_explanation(SSTDataset.LABEL_LIST)
+    # Data type either train, dev or test
+    def __init__(self, data_type, data_path="../data/SST", add_suffix=True, shuffle_data=True):
+        super(SSTDataset, self).__init__(data_type, shuffle_data)
+        if data_path is not None:
+            self.load_data(data_path, data_type)
+        else:
+            self.data_list == list()
+        super().set_data_list(self.data_list)
+        super().add_label_explanation(SSTDataset.LABEL_LIST)
 
-	def load_data(self, data_path, data_type):
-		self.data_list = list()
-		self.num_invalids = 0
-		filepath = os.path.join(data_path, data_type + ".txt")
-		with open(filepath, mode="r", encoding="utf-8") as f:
-			for line in f:
-				sent = line.strip().replace("\\","")
-				tokens = re.sub(r"\([0-9] |\)", "", sent).split()
-				label = int(sent[1])
-				if label == 2:
-					self.num_invalids += 1
-					continue
-				label = 0 if label < 2 else 1
-				d = SentData(sentence=" ".join(tokens), label=label)
-				self.data_list.append(d)
+    def load_data(self, data_path, data_type):
+        self.data_list = list()
+        self.num_invalids = 0
+        filepath = os.path.join(data_path, data_type + ".txt")
+        with open(filepath, mode="r", encoding="utf-8") as f:
+            for line in f:
+                sent = line.strip().replace("\\","")
+                tokens = re.sub(r"\([0-9] |\)", "", sent).split()
+                label = int(sent[1])
+                if label == 2:
+                    self.num_invalids += 1
+                    continue
+                label = 0 if label < 2 else 1
+                d = SentData(sentence=" ".join(tokens), label=label)
+                self.data_list.append(d)
 
 class VUADataset(DatasetTemplate):
 
