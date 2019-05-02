@@ -305,11 +305,19 @@ class SNLITask(TaskTemplate):
 				for attention_map, main_w in zip([prem_attention_map, np.transpose(hyp_attention_map, (0,2,1))], ["premise", "hypothesis"]):
 					fig = plt.figure()
 					ax = fig.add_subplot(111)
-					cax = ax.matshow(attention_map[i,:batch_prem[i].shape[0],:batch_hyp[i].shape[0]], cmap=plt.cm.gray)
-					ax.set_yticklabels([id2word[x] for x in batch_prem[i]])
-					ax.set_xticklabels([id2word[x] for x in batch_hyp[i]])
-					plt.yticks(range(batch_prem[i].shape[0]))
-					plt.xticks(range(batch_hyp[i].shape[0]), rotation=90)
+					sent_attention_map = attention_map[i,:batch_prem[i].shape[0],:batch_hyp[i].shape[0]]
+					bias_prem = self.classifier.bias_prem is not None and main_w == "premise"
+					bias_hyp = self.classifier.bias_hyp is not None and main_w == "hypothesis"
+					if bias_prem:
+						sent_attention_map = np.concatenate([sent_attention_map, 1 - np.sum(sent_attention_map, axis=1, keepdims=True)], axis=1)
+					if bias_hyp:
+						sent_attention_map = np.concatenate([sent_attention_map, 1 - np.sum(sent_attention_map, axis=0, keepdims=True)], axis=0)
+					# print(sent_attention_map)
+					cax = ax.matshow(sent_attention_map, cmap=plt.cm.gray)
+					ax.set_yticklabels([id2word[x] for x in batch_prem[i]] + ["bias"])
+					ax.set_xticklabels([id2word[x] for x in batch_hyp[i]] + ["bias"])
+					plt.yticks(range(batch_prem[i].shape[0]+(1 if bias_hyp else 0)))
+					plt.xticks(range(batch_hyp[i].shape[0]+(1 if bias_prem else 0)), rotation=90)
 					# print("Attention map %i shape: " % (i) + str(attention_map[i,:batch_prem[i].shape[0],:batch_hyp[i].shape[0]].shape))
 					# print("Premise %i: %s" % (i, " ".join([id2word[x] for x in batch_prem[i]])))
 					# print("Hypothesis %i: %s" % (i, " ".join([id2word[x] for x in batch_hyp[i]])))

@@ -156,6 +156,15 @@ class ESIM_Head(ClassifierHead):
 		fc_dropout = model_params["fc_dropout"] 
 		fc_dim = model_params["fc_dim"]
 		n_classes = model_params["nli_classes"]
+		use_bias = get_param_val(model_params, "use_bias", False)
+		self.use_scaling = get_param_val(model_params, "use_scaling", False)
+		print(model_params)
+		if use_bias:
+			self.bias_prem = nn.Parameter(torch.zeros(1), requires_grad=True)
+			self.bias_hyp = nn.Parameter(torch.zeros(1), requires_grad=True)
+		else:
+			self.bias_prem, self.bias_hyp = None, None
+
 
 		hidden_size = int(embed_sent_dim/2)
 		self.projection_layer = nn.Sequential(
@@ -213,10 +222,12 @@ class ESIM_Head(ClassifierHead):
 		# Function bmm: If batch1 is a (b,n,m) tensor, batch2 is a (b,m,p) tensor, out will be a (b,n,p) tensor.
 		similarity_matrix = torch.bmm(word_embed_premise,
 									  word_embed_hypothesis.transpose(2, 1).contiguous()) # Shape: [batch, prem len, hyp len]
+		if self.use_scaling:
+			similarity_matrix = similarity_matrix / math.sqrt(word_embed_premise.shape[-1])
 		
-		prem_to_hyp_attn = self._masked_softmax(similarity_matrix, length_hypothesis)
+		prem_to_hyp_attn = self._masked_softmax(similarity_matrix, length_hypothesis, bias=self.bias_prem)
 		hyp_to_prem_attn = self._masked_softmax(similarity_matrix.transpose(1, 2).contiguous(), # Input shape: [batch, hyp len, prem len]
-											   length_premise)
+											   length_premise, bias=self.bias_hyp)
 		self.last_prem_attention_map = prem_to_hyp_attn.cpu().data.numpy()
 		self.last_hyp_attention_map = hyp_to_prem_attn.cpu().data.numpy()
 
@@ -225,11 +236,16 @@ class ESIM_Head(ClassifierHead):
 		return prem_opponent, hyp_opponent
 
 
-	def _masked_softmax(self, _input, lengths):
-		word_positions = torch.arange(start=0, end=_input.shape[2], dtype=lengths.dtype, device=_input.device)
+	def _masked_softmax(self, _input, lengths, bias=None):
+		word_positions = torch.arange(start=0 if bias is None else -1, end=_input.shape[2], dtype=lengths.dtype, device=_input.device)
 		mask = (word_positions.reshape(shape=[1, 1, -1]) < lengths.reshape([-1, 1, 1])).float()
+		if bias is not None:
+			expanded_bias = bias.view(1,1,1).expand(_input.size(0), _input.size(1), 1)
+			_input = torch.cat((expanded_bias, _input), dim=-1)
 		softmax_act = self.softmax_layer(_input) * mask
 		softmax_act = softmax_act / torch.sum(softmax_act, dim=-1, keepdim=True)
+		if bias is not None:
+			softmax_act = softmax_act[:,:,1:]
 		return softmax_act
 
 	@staticmethod
@@ -405,6 +421,15 @@ class PyTorchLSTMChain(nn.Module):
 		return final_states, outputs # final
 
 
+#####################
+## Helper function ##
+#####################
+
+def get_param_val(param_dict, key, default_val):
+	if key in param_dict:
+		return param_dict[key]
+	else:
+		return default_val
 
 ##################
 ## PSEUDO TESTS ##

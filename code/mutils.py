@@ -102,12 +102,16 @@ def args_to_params(args):
 
 	def add_head(name, string_encoding):
 		model_params[name + "_head"] = dict()
-		parsed_params = [param.split("=") for param in string_encoding.split(",") if len(param.split("="))>1]
+		if len(string_encoding) > 0:
+			parsed_params = [param.split("=") for param in string_encoding.split(",")]
+		else:
+			parsed_params = []
 		param_names = [param[0] for param in parsed_params]
 		for param in parsed_params:
-			model_params[name + "_head"][param[0]] = float(param[1]) if "." in param[1] else \
-													(int(param[1]) if param[1].isdigit() else \
-													 param[1])
+			model_params[name + "_head"][param[0]] = True if len(param) == 1 else \
+													 (float(param[1]) if "." in param[1] else \
+													 (int(param[1]) if param[1].isdigit() else \
+													 param[1]))
 		for req_param in ["fc_dropout", "fc_dim", "fc_nonlinear", "embed_sent_dim", "nli_classes"]:
 			if req_param not in param_names:
 				model_params[name + "_head"][req_param] = model_params[req_param]
