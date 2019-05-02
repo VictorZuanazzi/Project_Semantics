@@ -266,6 +266,116 @@ class SSTDataset(DatasetTemplate):
 				d = SentData(sentence=" ".join(tokens), label=label)
 				self.data_list.append(d)
 
+class VUADataset(DatasetTemplate):
+
+    # Data type either train, dev or test
+    def __init__(self, data_type, data_path="../data/VUA/", shuffle_data=True):
+        """Initializes the VUA dataset.
+        inputs:
+        data_type: (srt), chose between the datastes 'train', 'dev', 'test'.
+        data_path: (str), path to the directory of the VUA dataset.
+        shuffle_data: (bool), True for shuffling the data, False not to.
+        """
+        super(VUADataset, self).__init__(data_type, shuffle_data)
+            
+        if data_path is not None: 
+            #load the data from file
+            self.load_data(data_path, data_type)
+        else:
+            #empty data_list if no path is specified
+            self.data_list == list()
+        
+        super().set_data_list(self.data_list)
+        super().add_label_explanation(VUAData.LABEL_LIST)
+
+    def load_data(self, data_path, data_type):
+        """loads the data as intances of the class VUAData.
+        input:
+            data_path: (str), path to the directory of the VUA dataset.
+            data_type: (srt), chose between the datastes 'train', 'dev', 'test'.
+        output:
+            data_list: (list(VUAData)) a list of datapoints in as instances of
+            the class VUAData."""
+            
+        self.data_list = list()
+        self.num_invalids = 0
+        
+        #maps data_type to file name
+        file = {"train": "VUA_formatted_train_augmented.csv",
+                        "dev": "VUA_formatted_val.csv", 
+                        "test": "VUA_formatted_test.csv"}
+        
+        #reads the wanted data
+        df_data = pd.read_csv(data_path + file.get(data_type, "train"),
+                              encoding = 'latin-1')
+        
+        for i in df_data.index.tolist():
+            if debug_level() == 0:
+                print("Read %4.2f%% of the dataset" % (100.0 * i / len(df_data)), end="\r")
+            
+            #reads the relevant parts of the dataset
+            sentence = df_data.at[i, "sentence"]
+            verb_position = df_data.at[i, "verb_idx"]
+            label = df_data.at[i, "label"]
+            
+            #initializes the data as an instance of the class VUAData
+            d = VUAData(sentence, verb_position, label)
+            
+            #appends everything in a beautiful list.
+            self.data_list.append(d)
+
+    def get_batch(self, batch_size, loop_dataset=True, toTorch=False, bidirectional=False):
+        """get a batch of examples from VUAData
+        input:
+            batch_size: (int), the number of datapoints in a batch,
+            loop_dataset: (bool), when False it ensures the batch size over all
+                batches. When True it is possible that the last batch of the 
+                epoch has fewer examples.
+            toTorch: (bool), if True the data is wraped in a torch tensor, if 
+                False numpy arrays are used instead.
+            bidirectional: (bool) deprecated, not used here. The parameter is 
+                kept in the signature to keep consistency with other classes.
+        output:
+            outputs of DatasetTemplate.sents_to_Tensors:
+                embeds: (np.array or torch.LongTensor), embeddings for the words
+                    in the sentences.
+                lengths: (np.array or torch.LongTensor), the length of each 
+                    sentence of the batch.
+                batch_labels:(np.array or torch.LongTensor), the labels of each
+                    sentence.
+            batch_verb_p: (np.array or torch.LongTensor), indicate the position
+                of the verb of interest.
+        """
+        # Output sentences with dimensions (bsize, max_len)
+        if not loop_dataset:
+            batch_size = min(batch_size, len(self.perm_indices) - self.example_index)
+        
+        batch_sentence = []
+        batch_verb_p = []
+        batch_labels = []
+        for _ in range(batch_size):
+            
+            data = self._get_next_example()
+            
+            batch_sentence.append(data.sentence_vocab)
+            batch_verb_p.append(data.verb_position)
+            batch_labels.append(data.label)
+        
+        #converts batch_verb_p to torch or numpy
+        if toTorch:
+            batch_verb_p = torch.LongTensor(batch_verb_p)
+            if torch.cuda.is_available():
+                batch_verb_p = batch_verb_p.cuda()
+        else:
+            batch_verb_p = np.array(batch_verb_p)
+        
+        #get the embeds, lengtghs and labels
+        embeds, lengths, batch_labels = DatasetTemplate.sents_to_Tensors(batch_sentence, 
+                                                batch_labels=batch_labels, 
+                                                toTorch=toTorch)
+        
+        return embeds, lengths, batch_labels, batch_verb_p
+
 
 class NLIData:
 
@@ -308,6 +418,7 @@ class NLIData:
 		for key, val in NLIData.LABEL_LIST.items():
 			if val == label:
 				return key
+
 
 
 class SentData:
@@ -366,6 +477,41 @@ class SentData:
 					vocab_words.append(word_dict[subword])
 		return vocab_words
 
+class VUAData:
+    
+    LABEL_LIST = {
+        "methaphore": 1, 
+        "literal": 0
+    }
+
+    def __init__(self, sentence, verb_position, label):
+        
+        self.sentence_words = SentData._preprocess_sentence(sentence)
+        self.sentence_vocab = None 
+        self.verb_position = verb_position
+        self.label = label
+
+    def translate_to_dict(self, word_dict):
+        self.sentence_vocab = SentData._sentence_to_dict(word_dict, self.sentence_words)
+
+    def number_words_not_in_dict(self, word_dict):
+        missing_words = 0
+        for w in (self.sentence_words):
+            if w not in word_dict:
+                missing_words += 1
+        return missing_words, self.premise_words
+        
+    def get_data(self):
+        return self.sentence_vocab, self.label
+
+    def get_sentence(self):
+        return " ".join(self.sentence_words)
+
+    @staticmethod
+    def label_to_string(label):
+        for key, val in VUAData.LABEL_LIST.items():
+            if val == label:
+                return key
 
 # class SeqData:
 
