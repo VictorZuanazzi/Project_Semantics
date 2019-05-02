@@ -387,6 +387,109 @@ class VUADataset(DatasetTemplate):
                                                 toTorch=toTorch)
         
         return embeds, lengths, batch_labels, batch_verb_p
+    
+class VUASeqDataset(DatasetTemplate):
+
+    # Data type either train, dev or test
+    def __init__(self, data_type, data_path="../data/VUAsequence/", shuffle_data=True):
+        """Initializes the VUA sequence dataset.
+        inputs:
+        data_type: (srt), chose between the datastes 'train', 'dev', 'test'.
+        data_path: (str), path to the directory of the VUA sequence dataset.
+        shuffle_data: (bool), True for shuffling the data, False not to.
+        """
+        super(VUASeqDataset, self).__init__(data_type, shuffle_data)
+            
+        if data_path is not None: 
+            #load the data from file
+            self.load_data(data_path, data_type)
+        else:
+            #empty data_list if no path is specified
+            self.data_list == list()
+        
+        super().set_data_list(self.data_list)
+        super().add_label_explanation(VUASeqData.LABEL_LIST)
+
+    def load_data(self, data_path, data_type):
+        """loads the data as intances of the class VUASeqData.
+        input:
+            data_path: (str), path to the directory of the VUA dataset.
+            data_type: (srt), chose between the datastes 'train', 'dev', 'test'.
+        output:
+            data_list: (list(VUASeqData)) a list of datapoints in as instances of
+            the class VUASeqData."""
+            
+        self.data_list = list()
+        self.num_invalids = 0
+        
+        #maps data_type to file name
+        file = {"train": "VUA_seq_formatted_train.csv",
+                "dev": "VUA_seq_formatted_val.csv", 
+                "test": "VUA_seq_formatted_test.csv"}
+        
+        #reads the wanted data
+        df_data = pd.read_csv(data_path + file.get(data_type, "train"),
+                              encoding = 'latin-1')
+        
+        for i in df_data.index.tolist():
+            if debug_level() == 0:
+                print("Read %4.2f%% of the dataset" % (100.0 * i / len(df_data)), end="\r")
+            
+            #reads the relevant parts of the dataset
+            sentence = df_data.at[i, "sentence"]
+            pos = eval(df_data.at[i, "pos_seq"])
+            label = eval(df_data.at[i, "label_seq"])
+            
+            #initializes the data as an instance of the class VUASeqData
+            d = VUASeqData(sentence, pos, label)
+            
+            #appends everything in a beautiful list.
+            self.data_list.append(d)
+
+    def get_batch(self, batch_size, loop_dataset=True, toTorch=False):
+        """get a batch of examples from VUASeqData
+        input:
+            batch_size: (int), the number of datapoints in a batch,
+            loop_dataset: (bool), when False it ensures the batch size over all
+                batches. When True it is possible that the last batch of the 
+                epoch has fewer examples.
+            toTorch: (bool), if True the data is wraped in a torch tensor, if 
+                False numpy arrays are used instead.
+        output:
+            outputs of DatasetTemplate.sents_to_Tensors:
+                embeds: (np.array or torch.LongTensor), embeddings for the words
+                    in the sentences.
+                lengths: (np.array or torch.LongTensor), the length of each 
+                    sentence of the batch.
+                batch_labels:(np.array or torch.LongTensor), the labels of each
+                    sentence.
+            batch_verb_p: (np.array or torch.LongTensor), indicate the position
+                of the verb of interest.
+        """
+        # Output sentences with dimensions (bsize, max_len)
+        if not loop_dataset:
+            batch_size = min(batch_size, len(self.perm_indices) - self.example_index)
+        
+        batch_sentence = []
+        batch_verb_p = []
+        batch_labels = []
+        for _ in range(batch_size):
+            
+            data = self._get_next_example()
+            
+            batch_sentence.append(data.sentence_vocab)
+            batch_verb_p.append(data.verb_position)
+            batch_labels.append(data.label)
+        
+        #converts batch_verb_p to torch or numpy
+        batch_verb_p = DatasetTemplate.object_to_Tensors(batch_verb_p)
+        
+        #get the embeds, lengtghs and labels
+        embeds, lengths, batch_labels = DatasetTemplate.sents_to_Tensors(batch_sentence, 
+                                                batch_labels=batch_labels, 
+                                                toTorch=toTorch)
+        
+        return embeds, lengths, batch_labels, batch_verb_p
 
 class WiCDataset(DatasetTemplate):
 
@@ -575,8 +678,6 @@ class NLIData:
             if val == label:
                 return key
 
-
-
 class SentData:
 
     def __init__(self, sentence, label=None):
@@ -666,6 +767,85 @@ class VUAData:
     @staticmethod
     def label_to_string(label):
         for key, val in VUAData.LABEL_LIST.items():
+            if val == label:
+                return key
+            
+class VUASeqData:
+    
+    #it is called LABEL_LIST, but it is a dictionary.
+    LABEL_LIST = {
+        "methaphore": 1, 
+        "literal": 0
+    }
+
+    def __init__(self, sentence, pos, label):
+        
+        self.sentence_words = SentData._preprocess_sentence(sentence)
+        self.sentence_vocab = None 
+        self.pos = self.treat_sequence(sentence, pos)
+        self.label = self.treat_sequence(sentence, label)
+        
+    def treat_sequence(self, sentence, seq):
+        """deals with edge cases where self.sentence_words and a sequence don't
+        match in length.
+        Warning: it does not correctly tokenize the punctiations, some sentences
+            may be severelly damaged by that.
+        input:
+            sentence: (list(str)) the original sentence, as given to __init__
+            seq: (list()) the sequence that should match.
+        output:
+            the original seq, if seq <= self.sentence_words;
+            reduced seq if seq > self.sentence_words;
+            reduced self.sentence_words if seq < self.sentence_words."""
+        
+        #ideal case, both match perfectly
+        if len(self.sentence_words) == len(seq):
+            return seq
+        
+        
+        #removes items from the seq that have no mapping in the self.setence_words
+        elif len(self.sentence_words) < len(seq):
+            sent = sentence.split()
+            for i in range(len(self.sentence_words)):
+                if self.sentence_words[i] != sent[i].lower():
+                    sent.pop(i)
+                    seq.pop(i)
+            
+            return seq
+        
+        #removes words from self.sentence_words that have no mapping to seq
+        elif len(self.sentence_words) > len(seq):
+            sent = sentence.split()
+            for i in range(len(sent)):
+                    if self.sentence_words[i] != sent[i].lower():
+                        self.sentence_words.pop(i)
+            return seq
+
+    def translate_to_dict(self, word_dict):
+        self.sentence_vocab = SentData._sentence_to_dict(word_dict, self.sentence_words)
+
+    def number_words_not_in_dict(self, word_dict):
+        missing_words = 0
+        for w in (self.sentence_words):
+            if w not in word_dict:
+                missing_words += 1
+        return missing_words, len(self.sentence_words)
+        
+    def get_data(self, chose_label = "metaphore"):
+        """access to data and label.
+        chose_label == 'metaphore' gives the sequence metaphore labels,
+        chose_label == 'pos' gives the POS labels."""
+        if chose_label == "metaphore":
+            return self.sentence_vocab, self.label
+        else: 
+            return self.sentence_vocab, self.pos
+
+    def get_sentence(self):
+        return " ".join(self.sentence_words)
+
+    @staticmethod
+    def label_to_string(label):
+        for key, val in VUASeqData.LABEL_LIST.items():
             if val == label:
                 return key
 
