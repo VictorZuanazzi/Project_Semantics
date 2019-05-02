@@ -188,7 +188,7 @@ class DatasetTemplate:
 class SNLIDataset(DatasetTemplate):
 
 	# Data type either train, dev or test
-	def __init__(self, data_type, data_path="../data/snli_1.0", add_suffix=True, shuffle_data=True):
+	def __init__(self, data_type, data_path="../data/snli_1.0", shuffle_data=True):
 		super(SNLIDataset, self).__init__(data_type, shuffle_data)
 		if data_path is not None:
 			self.load_data(data_path, data_type)
@@ -241,7 +241,7 @@ class SSTDataset(DatasetTemplate):
 	}
 
 	# Data type either train, dev or test
-	def __init__(self, data_type, data_path="../data/SST", add_suffix=True, shuffle_data=True):
+	def __init__(self, data_type, data_path="../data/SST", shuffle_data=True):
 		super(SSTDataset, self).__init__(data_type, shuffle_data)
 		if data_path is not None:
 			self.load_data(data_path, data_type)
