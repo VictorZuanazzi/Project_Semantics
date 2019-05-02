@@ -236,7 +236,7 @@ class SNLIDataset(DatasetTemplate):
             d = NLIData(premise = prem, hypothesis = hyp, label = lab)
             self.data_list.append(d)
 
-    def get_batch(self, batch_size, loop_dataset=True, toTorch=False, bidirectional=False):
+    def get_batch(self, batch_size, loop_dataset=True, toTorch=False):
         # Output sentences with dimensions (bsize, max_len)
         if not loop_dataset:
             batch_size = min(batch_size, len(self.perm_indices) - self.example_index)
@@ -248,9 +248,7 @@ class SNLIDataset(DatasetTemplate):
             batch_s1.append(data.premise_vocab)
             batch_s2.append(data.hypothesis_vocab)
             batch_labels.append(data.label)
-            if bidirectional:
-                batch_s1.append(data.premise_vocab[::-1])
-                batch_s2.append(data.hypothesis_vocab[::-1])
+            
         return DatasetTemplate.sents_to_Tensors([batch_s1, batch_s2], batch_labels=batch_labels, toTorch=toTorch)
 
 
@@ -345,7 +343,7 @@ class VUADataset(DatasetTemplate):
             #appends everything in a beautiful list.
             self.data_list.append(d)
 
-    def get_batch(self, batch_size, loop_dataset=True, toTorch=False, bidirectional=False):
+    def get_batch(self, batch_size, loop_dataset=True, toTorch=False):
         """get a batch of examples from VUAData
         input:
             batch_size: (int), the number of datapoints in a batch,
@@ -354,8 +352,6 @@ class VUADataset(DatasetTemplate):
                 epoch has fewer examples.
             toTorch: (bool), if True the data is wraped in a torch tensor, if 
                 False numpy arrays are used instead.
-            bidirectional: (bool) deprecated, not used here. The parameter is 
-                kept in the signature to keep consistency with other classes.
         output:
             outputs of DatasetTemplate.sents_to_Tensors:
                 embeds: (np.array or torch.LongTensor), embeddings for the words
@@ -487,7 +483,7 @@ class WiCDataset(DatasetTemplate):
             #appends everything in a beautiful list.
             self.data_list.append(d)
 
-    def get_batch(self, batch_size, loop_dataset=True, toTorch=False, bidirectional=False):
+    def get_batch(self, batch_size, loop_dataset=True, toTorch=False):
         """get a batch of examples from WiCData
         input:
             batch_size: (int), the number of datapoints in a batch,
@@ -496,8 +492,6 @@ class WiCDataset(DatasetTemplate):
                 epoch has fewer examples.
             toTorch: (bool), if True the data is wraped in a torch tensor, if 
                 False numpy arrays are used instead.
-            bidirectional: (bool) deprecated, not used here. The parameter is 
-                kept in the signature to keep consistency with other classes.
         output:
             outputs of DatasetTemplate.sents_to_Tensors:
                 embeds: (np.array or torch.LongTensor), embeddings for the words
