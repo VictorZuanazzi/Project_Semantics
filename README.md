@@ -1,5 +1,10 @@
 # Project_Semantics
 
+Visualization of the overall approach
+
+<p align="center">
+  <img src="report/figures/approach_visu.png" width="600" title="Overview of joint multitask training">
+</p>
 
 # Code basis
 Code practical 1.
