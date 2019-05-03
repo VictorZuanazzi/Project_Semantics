@@ -88,12 +88,13 @@ class DatasetHandler:
 
 class DatasetTemplate:
 
-	def __init__(self, data_type="train", shuffle_data=True):
+	def __init__(self, data_type="train", shuffle_data=True, name=""):
 		self.data_type = data_type
 		self.shuffle_data = shuffle_data
 		self.set_data_list(list())
 		self.label_dict = dict()
 		self.num_invalids = 0
+		self.dataset_name = name
 
 	def set_data_list(self, new_data):
 		self.data_list = new_data
@@ -165,6 +166,8 @@ class DatasetTemplate:
 				print("Processed %4.2f%% of the dataset" % (100.0 * i / len(self.data_list)), end="\r")
 			if isinstance(data, NLIData):
 				data_words = data.premise_words + data.hypothesis_words
+			elif isinstance(data, WiCData):
+				data_words = data.s1_words + data.s2_words
 			else:
 				data_words = data.sent_words
 			for w in data_words:
@@ -218,7 +221,7 @@ class DatasetTemplate:
 
 	def print_statistics(self):
 		print("="*50)
-		print("Dataset statistics " + self.data_type)
+		print("Dataset statistics " + ((self.dataset_name + " ") if self.dataset_name is not None else "") + self.data_type)
 		print("-"*50)
 		print("Number of examples: " + str(len(self.data_list)))
 		print("Labelwise amount:")
@@ -232,7 +235,7 @@ class SNLIDataset(DatasetTemplate):
 
 	# Data type either train, dev or test
 	def __init__(self, data_type, data_path="../data/snli_1.0", add_suffix=True, shuffle_data=True):
-		super(SNLIDataset, self).__init__(data_type, shuffle_data)
+		super(SNLIDataset, self).__init__(data_type, shuffle_data, name="SNLI")
 		if data_path is not None:
 			self.load_data(data_path, data_type)
 		else:
@@ -283,7 +286,7 @@ class SSTDataset(DatasetTemplate):
 
 	# Data type either train, dev or test
 	def __init__(self, data_type, data_path="../data/SST", add_suffix=True, shuffle_data=True):
-		super(SSTDataset, self).__init__(data_type, shuffle_data)
+		super(SSTDataset, self).__init__(data_type, shuffle_data, name="SST")
 		if data_path is not None:
 			self.load_data(data_path, data_type)
 		else:
@@ -317,7 +320,7 @@ class VUADataset(DatasetTemplate):
 		data_path: (str), path to the directory of the VUA dataset.
 		shuffle_data: (bool), True for shuffling the data, False not to.
 		"""
-		super(VUADataset, self).__init__(data_type, shuffle_data)
+		super(VUADataset, self).__init__(data_type, shuffle_data, name="VUA")
 			
 		if data_path is not None: 
 			#load the data from file
@@ -423,7 +426,7 @@ class VUASeqDataset(DatasetTemplate):
 		data_path: (str), path to the directory of the VUA sequence dataset.
 		shuffle_data: (bool), True for shuffling the data, False not to.
 		"""
-		super(VUASeqDataset, self).__init__(data_type, shuffle_data)
+		super(VUASeqDataset, self).__init__(data_type, shuffle_data, name="VUA Sequence")
 			
 		if data_path is not None: 
 			#load the data from file
@@ -526,7 +529,7 @@ class WiCDataset(DatasetTemplate):
 		data_path: (str), path to the directory of the WiC dataset.
 		shuffle_data: (bool), True for shuffling the data, False not to.
 		"""
-		super(WiCDataset, self).__init__(data_type, shuffle_data)
+		super(WiCDataset, self).__init__(data_type, shuffle_data, name="WiC")
 			
 		if data_path is not None: 
 			#load the data from file

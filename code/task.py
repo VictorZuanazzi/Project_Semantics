@@ -15,11 +15,12 @@ from vocab import get_id2word_dict
 
 class TaskTemplate:
 
-	def __init__(self, model, model_params, name, load_data=True):
+	def __init__(self, model, model_params, name, load_data=True, debug=False):
 		self.name = name 
 		self.model = model
 		self.model_params = model_params
 		self.classifier_params = model_params[name + "_head"] if (name + "_head") in model_params else model_params
+		self.debug = debug
 		self.classifier = None
 		self.loss_module = None
 		self.train_dataset = None 
@@ -228,8 +229,8 @@ class SNLITask(TaskTemplate):
 	CLASSIFIER_INFERSENT = 0
 	CLASSIFIER_ESIM = 1
 
-	def __init__(self, model, model_params, load_data=True):
-		super(SNLITask, self).__init__(model=model, model_params=model_params, load_data=load_data, name=SNLITask.NAME)
+	def __init__(self, model, model_params, load_data=True, debug=False):
+		super(SNLITask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=SNLITask.NAME)
 		self.classifier = self._create_classifier()
 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
 		if torch.cuda.is_available():
@@ -249,7 +250,7 @@ class SNLITask(TaskTemplate):
 
 
 	def _load_datasets(self):
-		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SNLI_datasets(debug_dataset=True)
+		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SNLI_datasets(debug_dataset=self.debug)
 
 
 	def train_step(self, batch_size, loop_dataset=True):
@@ -329,8 +330,8 @@ class SSTTask(TaskTemplate):
 
 	NAME = "Stanford_Sentiment_Treebank"
 
-	def __init__(self, model, model_params, load_data=True):
-		super(SSTTask, self).__init__(model=model, model_params=model_params, load_data=load_data, name=SSTTask.NAME)
+	def __init__(self, model, model_params, load_data=True, debug=False):
+		super(SSTTask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=SSTTask.NAME)
 		self.classifier = SimpleClassifier(self.classifier_params, 2)
 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
 		if torch.cuda.is_available():
@@ -339,7 +340,7 @@ class SSTTask(TaskTemplate):
 
 
 	def _load_datasets(self):
-		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SST_datasets()
+		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SST_datasets(debug_dataset=self.debug)
 
 
 	def train_step(self, batch_size, loop_dataset=True):
@@ -372,8 +373,8 @@ class VUATask(TaskTemplate):
 
 	NAME = "VUA_Metaphor_Detection"
 
-	def __init__(self, model, model_params, load_data=True):
-		super(VUATask, self).__init__(model=model, model_params=model_params, load_data=load_data, name=VUATask.NAME)
+	def __init__(self, model, model_params, load_data=True, debug=False):
+		super(VUATask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=VUATask.NAME)
 		self.classifier = SimpleClassifier(self.classifier_params, 2)
 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
 		if torch.cuda.is_available():
@@ -382,7 +383,7 @@ class VUATask(TaskTemplate):
 
 
 	def _load_datasets(self):
-		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_VUA_datasets()
+		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_VUA_datasets(debug_dataset=self.debug)
 
 
 	def train_step(self, batch_size, loop_dataset=True):
