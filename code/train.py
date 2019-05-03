@@ -16,7 +16,7 @@ from tensorboardX import SummaryWriter
 # from visualdl import LogWriter
 # from torchviz import make_dot
 
-from task import TaskTemplate, SNLITask, SSTTask, MultiTaskSampler
+from task import TaskTemplate, SNLITask, SSTTask, VUATask, MultiTaskSampler
 from model import MultiTaskEncoder
 from data import debug_level, set_debug_level
 from vocab import load_word2vec_from_file
@@ -44,6 +44,8 @@ class MultiTaskTrain:
 			return SNLITask(self.model, model_params, load_data=True)
 		elif task == SSTTask.NAME:
 			return SSTTask(self.model, model_params, load_data=True)
+		elif task == VUATask.NAME:
+			return VUATask(self.model, model_params, load_data=True)
 		else:
 			print("[!] ERROR: Unknown task " + str(task))
 			sys.exit(1) 
@@ -114,7 +116,7 @@ class MultiTaskTrain:
 		
 		time_per_step = np.zeros((2,), dtype=np.float32)
 
-		if start_iter == 0:
+		if start_iter == 0 and writer is not None:
 			export_weight_parameters(0)
 		# Try-catch if user terminates
 		try:
@@ -235,7 +237,8 @@ if __name__ == '__main__':
 	parser.add_argument("--task_POS", help="Frequency with which the task POS tagging should be used. Default: 0 (not used at all)", type=float, default=0)
 	parser.add_argument("--task_SST", help="Frequency with which the task Stanford Sentiment Treebank should be used. Default: 0 (not used at all)", type=float, default=0)
 	parser.add_argument("--task_SST_head", help="Specification of SST task head. Use string encoding, for example: \"--task_SST_head model=0,dp=0.5,dim=300\". Default: use default values defined by parameters \"fc_dim\" etc.", type=str, default="")
-	parser.add_argument("--task_VUMetaphor", help="Frequency with which the task VUMetaphor should be used. Default: 0 (not used at all)", type=float, default=0)
+	parser.add_argument("--task_VUA", help="Frequency with which the task VUMetaphor should be used. Default: 0 (not used at all)", type=float, default=0)
+	parser.add_argument("--task_VUA_head", help="Specification of VUA task head. Use string encoding, for example: \"--task_VUA_head model=0,dp=0.5,dim=300\". Default: use default values defined by parameters \"fc_dim\" etc.", type=str, default="")
 	# Multitask training
 	parser.add_argument("--multi_epoch_size", help="Size of epoch for which the batch indices are shuffled", type=int, default=1e3)
 	parser.add_argument("--multi_batchwise", help="Whether the multi-task learning should be done per batch, or the elements within a batch come from multiple tasks", action="store_true")

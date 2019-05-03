@@ -20,7 +20,7 @@ from shutil import copyfile
 from model import MultiTaskEncoder
 from data import DatasetHandler, debug_level, set_debug_level, DatasetTemplate, SentData
 from vocab import load_word2vec_from_file
-from task import SNLITask, SSTTask
+from task import SNLITask, SSTTask, VUATask
 
 PARAM_CONFIG_FILE = "param_config.pik"
 
@@ -133,6 +133,9 @@ def args_to_params(args):
 	if args.task_SST > 0:
 		task_freq_dict[SSTTask.NAME] = args.task_SST
 		add_head(SSTTask.NAME, args.task_SST_head)
+	if args.task_VUA > 0:
+		task_freq_dict[VUATask.NAME] = args.task_VUA
+		add_head(VUATask.NAME, args.task_VUA_head)
 
 	tasks = sorted(list(task_freq_dict.keys()))
 
@@ -261,7 +264,7 @@ def get_transfer_datasets():
 	mpqa_task_path = "../../SentEval/data/downstream/MPQA/"		
 	transfer_datasets["MPQA"] = load_classification_dataset([os.path.join(mpqa_task_path, 'mpqa.neg'),
 															 os.path.join(mpqa_task_path, 'mpqa.pos')],
-														     {0: "Negative", 1: "Positive"})
+															 {0: "Negative", 1: "Positive"})
 
 	trec_task_path = "../../SentEval/data/downstream/TREC/"		
 	trec_file = loadFile(os.path.join(trec_task_path, 'train_5500.label'))
@@ -481,39 +484,39 @@ def test_for_significance(checkpoint_path_1, checkpoint_path_2):
 
 def sign_test(results_1, results_2):
 	# Function from NLP 1 practical
-    """test for significance
-    results_1 is a list of classification results (+ for correct, - incorrect)
-    results_2 is a list of classification results (+ for correct, - incorrect)
-    """
-    ties, plus, minus = 0, 0, 0
+	"""test for significance
+	results_1 is a list of classification results (+ for correct, - incorrect)
+	results_2 is a list of classification results (+ for correct, - incorrect)
+	"""
+	ties, plus, minus = 0, 0, 0
 
-    # "-" carries the error
-    for i in range(0, len(results_1)):
-        if results_1[i]==results_2[i]:
-            ties += 1
-        elif results_1[i]==0: 
-            plus += 1
-        elif results_2[i]==0: 
-            minus += 1
-    n = 2 * math.ceil(ties/2.0) + plus + minus
-    k = math.ceil(ties/2.0) + min(plus, minus)
-    # Print number of ties, plus and minus for debugging
-    # print("Ties: " + str(ties) + ", Plus: " + str(plus) + ", Minus: " + str(minus) + " => " + "N: " + str(n) + ", K: " + str(k))
-    
-    summation = Decimal(0.0)
-    for i in range(0,int(k)+1):
-        # Use the exact value of the comb function and convert it to a decimal
-        summation += Decimal(scipy.special.comb(n,i,exact=True))
+	# "-" carries the error
+	for i in range(0, len(results_1)):
+		if results_1[i]==results_2[i]:
+			ties += 1
+		elif results_1[i]==0: 
+			plus += 1
+		elif results_2[i]==0: 
+			minus += 1
+	n = 2 * math.ceil(ties/2.0) + plus + minus
+	k = math.ceil(ties/2.0) + min(plus, minus)
+	# Print number of ties, plus and minus for debugging
+	# print("Ties: " + str(ties) + ", Plus: " + str(plus) + ", Minus: " + str(minus) + " => " + "N: " + str(n) + ", K: " + str(k))
+	
+	summation = Decimal(0.0)
+	for i in range(0,int(k)+1):
+		# Use the exact value of the comb function and convert it to a decimal
+		summation += Decimal(scipy.special.comb(n,i,exact=True))
 
-    # use two-tailed version of test
-    summation *= 2
-    summation *= (Decimal(0.5)**Decimal(n))
-    
+	# use two-tailed version of test
+	summation *= 2
+	summation *= (Decimal(0.5)**Decimal(n))
+	
   
-    print("the difference is", 
-        "not significant" if summation >= 0.05 else "significant")    
-    print("p_value = %.5f" % summation)
-    return summation
+	print("the difference is", 
+		"not significant" if summation >= 0.05 else "significant")	
+	print("p_value = %.5f" % summation)
+	return summation
 
 if __name__ == '__main__':
 	# copy_results()
