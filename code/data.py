@@ -44,8 +44,8 @@ class DatasetHandler:
 			data_types = ['train' if not debug_dataset else 'dev', 'dev', 'test']
 		for data_type in data_types:
 			dataset = dataset_fun(data_type, shuffle_data=('train' in data_type))
-			dataset.print_statistics()
 			dataset.set_vocabulary(word2id_dict)
+			dataset.print_statistics()
 			dataset_list.append(dataset)
 		return dataset_list
 
@@ -131,6 +131,11 @@ class DatasetTemplate:
 			lengths.append(lengths_sents)
 			embeds.append(sent_embeds)
 		if batch_labels is not None and toTorch:
+			if isinstance(batch_labels[0], (list, np.ndarray)):
+				padded_labels = np.zeros((len(batch_labels), max_len), dtype=np.int32) - 1
+				for label_index, lab in enumerate(batch_labels):
+					padded_labels[label_index, :lab.shape[0]] = np.array(lab)
+				batch_labels = padded_labels
 			batch_labels = torch.LongTensor(np.array(batch_labels))
 			if torch.cuda.is_available():
 				batch_labels = batch_labels.cuda()
@@ -224,9 +229,15 @@ class DatasetTemplate:
 		print("Dataset statistics " + ((self.dataset_name + " ") if self.dataset_name is not None else "") + self.data_type)
 		print("-"*50)
 		print("Number of examples: " + str(len(self.data_list)))
-		print("Labelwise amount:")
-		for key, val in self.label_dict.items():
-			print("\t- " + val + ": " + str(sum([d.label == key for d in self.data_list])))
+		if len(self.data_list) > 0 and isinstance(self.data_list[0].label, (list, np.ndarray)):
+			print("Number of token-level labels: " + str(sum([d.label.shape[0] for d in self.data_list])))
+			print("Labelwise amount:")
+			for key, val in self.label_dict.items():
+				print("\t- " + val + ": " + str(sum([l == key for d in self.data_list for l in (d if len(d.label.shape) == 1 else d.label[:,0])])))
+		else:
+			print("Labelwise amount:")
+			for key, val in self.label_dict.items():
+				print("\t- " + val + ": " + str(sum([d.label == key for d in self.data_list])))
 		print("Number of invalid examples: " + str(self.num_invalids))
 		print("="*50)
 
@@ -309,6 +320,7 @@ class SSTDataset(DatasetTemplate):
 				label = 0 if label < 2 else 1
 				d = SentData(sentence=" ".join(tokens), label=label)
 				self.data_list.append(d)
+
 
 class VUADataset(DatasetTemplate):
 
@@ -416,6 +428,7 @@ class VUADataset(DatasetTemplate):
 		
 		return embeds[0], lengths[0], batch_labels, batch_verb_p
 	
+
 class VUASeqDataset(DatasetTemplate):
 
 	# Data type either train, dev or test
@@ -491,33 +504,27 @@ class VUASeqDataset(DatasetTemplate):
 					sentence of the batch.
 				batch_labels:(np.array or torch.LongTensor), the labels of each
 					sentence.
-			batch_verb_p: (np.array or torch.LongTensor), indicate the position
-				of the verb of interest.
 		"""
 		# Output sentences with dimensions (bsize, max_len)
 		if not loop_dataset:
 			batch_size = min(batch_size, len(self.perm_indices) - self.example_index)
 		
 		batch_sentence = []
-		batch_verb_p = []
 		batch_labels = []
 		for _ in range(batch_size):
 			
 			data = self._get_next_example()
-			
-			batch_sentence.append(data.sent_vocab	)
-			batch_verb_p.append(data.verb_position)
-			batch_labels.append(data.label)
-		
-		#converts batch_verb_p to torch or numpy
-		batch_verb_p = DatasetTemplate.object_to_Tensors(batch_verb_p, toTorch=toTorch)
+			sent_vocab, label = data.get_data()
+			batch_sentence.append(sent_vocab)
+			batch_labels.append(label)
 		
 		#get the embeds, lengtghs and labels
 		embeds, lengths, batch_labels = DatasetTemplate.sents_to_Tensors([batch_sentence], 
 												batch_labels=batch_labels, 
 												toTorch=toTorch)
 		
-		return embeds[0], lengths[0], batch_labels, batch_verb_p
+		return embeds[0], lengths[0], batch_labels
+
 
 class WiCDataset(DatasetTemplate):
 
@@ -664,47 +671,10 @@ class WiCDataset(DatasetTemplate):
 		
 		return embeds, lengths, batch_labels, batch_p1, batch_p2  
 
-class NLIData:
 
-	LABEL_LIST = {
-		'-': -1,
-		"neutral": 0, 
-		"entailment": 1,
-		"contradiction": 2
-	}
-
-	def __init__(self, premise, hypothesis, label):
-		self.premise_words = SentData._preprocess_sentence(premise)
-		self.hypothesis_words = SentData._preprocess_sentence(hypothesis)
-		self.premise_vocab = None
-		self.hypothesis_vocab = None
-		self.label = label
-
-	def translate_to_dict(self, word_dict):
-		self.premise_vocab = SentData._sentence_to_dict(word_dict, self.premise_words)
-		self.hypothesis_vocab = SentData._sentence_to_dict(word_dict, self.hypothesis_words)
-
-	def number_words_not_in_dict(self, word_dict):
-		missing_words = 0
-		for w in (self.premise_words + self.hypothesis_words):
-			if w not in word_dict:
-				missing_words += 1
-		return missing_words, (len(self.premise_words) + len(self.hypothesis_words))
-		
-	def get_data(self):
-		return self.premise_vocab, self.hypothesis_vocab, self.label
-
-	def get_premise(self):
-		return " ".join(self.premise_words)
-
-	def get_hypothesis(self):
-		return " ".join(self.hypothesis_words)
-
-	@staticmethod
-	def label_to_string(label):
-		for key, val in NLIData.LABEL_LIST.items():
-			if val == label:
-				return key
+############################################
+## DATA OBJECT CLASSES FOR CLASSIFICATION ##
+############################################
 
 class SentData:
 
@@ -762,7 +732,51 @@ class SentData:
 					vocab_words.append(word_dict[subword])
 		return vocab_words
 
-class VUAData:
+
+class NLIData:
+
+	LABEL_LIST = {
+		'-': -1,
+		"neutral": 0, 
+		"entailment": 1,
+		"contradiction": 2
+	}
+
+	def __init__(self, premise, hypothesis, label):
+		self.premise_words = SentData._preprocess_sentence(premise)
+		self.hypothesis_words = SentData._preprocess_sentence(hypothesis)
+		self.premise_vocab = None
+		self.hypothesis_vocab = None
+		self.label = label
+
+	def translate_to_dict(self, word_dict):
+		self.premise_vocab = SentData._sentence_to_dict(word_dict, self.premise_words)
+		self.hypothesis_vocab = SentData._sentence_to_dict(word_dict, self.hypothesis_words)
+
+	def number_words_not_in_dict(self, word_dict):
+		missing_words = 0
+		for w in (self.premise_words + self.hypothesis_words):
+			if w not in word_dict:
+				missing_words += 1
+		return missing_words, (len(self.premise_words) + len(self.hypothesis_words))
+		
+	def get_data(self):
+		return self.premise_vocab, self.hypothesis_vocab, self.label
+
+	def get_premise(self):
+		return " ".join(self.premise_words)
+
+	def get_hypothesis(self):
+		return " ".join(self.hypothesis_words)
+
+	@staticmethod
+	def label_to_string(label):
+		for key, val in NLIData.LABEL_LIST.items():
+			if val == label:
+				return key
+
+
+class VUAData(SentData):
 	
 	LABEL_LIST = {
 		"metaphor": 1, 
@@ -770,24 +784,11 @@ class VUAData:
 	}
 
 	def __init__(self, sentence, verb_position, label):
-		
-		self.sent_words = SentData._preprocess_sentence(sentence)
-		self.sent_vocab	 = None 
+		super(VUAData, self).__init__(sentence, label)
 		self.verb_position = verb_position
-		self.label = label
-
-	def translate_to_dict(self, word_dict):
-		self.sent_vocab	 = SentData._sentence_to_dict(word_dict, self.sent_words)
-
-	def number_words_not_in_dict(self, word_dict):
-		missing_words = 0
-		for w in (self.sent_words):
-			if w not in word_dict:
-				missing_words += 1
-		return missing_words, len(self.sent_words)
 		
 	def get_data(self):
-		return self.sent_vocab	, self.label
+		return self.sent_vocab, self.label
 
 	def get_sentence(self):
 		return " ".join(self.sent_words)
@@ -797,85 +798,7 @@ class VUAData:
 		for key, val in VUAData.LABEL_LIST.items():
 			if val == label:
 				return key
-			
-class VUASeqData:
-	
-	#it is called LABEL_LIST, but it is a dictionary.
-	LABEL_LIST = {
-		"metaphor": 1, 
-		"literal": 0
-	}
 
-	def __init__(self, sentence, pos, label):
-		
-		self.sent_words = SentData._preprocess_sentence(sentence)
-		self.sent_vocab	 = None 
-		self.pos = self.treat_sequence(sentence, pos)
-		self.label = self.treat_sequence(sentence, label)
-		
-	def treat_sequence(self, sentence, seq):
-		"""deals with edge cases where self.sent_words and a sequence don't
-		match in length.
-		Warning: it does not correctly tokenize the punctiations, some sentences
-			may be severelly damaged by that.
-		input:
-			sentence: (list(str)) the original sentence, as given to __init__
-			seq: (list()) the sequence that should match.
-		output:
-			the original seq, if seq <= self.sent_words;
-			reduced seq if seq > self.sent_words;
-			reduced self.sent_words if seq < self.sent_words."""
-		
-		#ideal case, both match perfectly
-		if len(self.sent_words) == len(seq):
-			return seq
-		
-		
-		#removes items from the seq that have no mapping in the self.setence_words
-		elif len(self.sent_words) < len(seq):
-			sent = sentence.split()
-			for i in range(len(self.sent_words)):
-				if self.sent_words[i] != sent[i].lower():
-					sent.pop(i)
-					seq.pop(i)
-			
-			return seq
-		
-		#removes words from self.sent_words that have no mapping to seq
-		elif len(self.sent_words) > len(seq):
-			sent = sentence.split()
-			for i in range(len(sent)):
-					if self.sent_words[i] != sent[i].lower():
-						self.sent_words.pop(i)
-			return seq
-
-	def translate_to_dict(self, word_dict):
-		self.sent_vocab = SentData._sentence_to_dict(word_dict, self.sent_words)
-
-	def number_words_not_in_dict(self, word_dict):
-		missing_words = 0
-		for w in (self.sent_words):
-			if w not in word_dict:
-				missing_words += 1
-		return missing_words, len(self.sent_words)
-		
-	def get_data(self, chose_label = "metaphor"):
-		"""access to data and label.
-		chose_label == 'metaphor' gives the sequence metaphor labels,
-		chose_label == 'pos' gives the POS labels."""
-		if chose_label == "metaphor":
-			return self.sent_vocab, self.label
-		else: 
-			return self.sent_vocab, self.pos
-
-	def get_sentence(self):
-		return " ".join(self.sent_words)
-
-	@staticmethod
-	def label_to_string(label):
-		for key, val in VUASeqData.LABEL_LIST.items():
-			if val == label:
-				return key
 
 class WiCData:
 	
@@ -924,57 +847,148 @@ class WiCData:
 		for key, val in WiCData.LABEL_LIST.items():
 			if val == label:
 				return key
-# class SeqData:
 
-#	 def __init__(self, sentence, label):
-#		 self.sent_words = SeqData._preprocess_sentence(sentence)
-#		 self.label = label
-#		 assert len(self.label) == len(self.sent_words), "Number of labels have to fit to number of words in the sentence"
-#		 self.sent_vocab = None
 
-#	 def translate_to_dict(self, word_dict):
-#		 self.sent_vocab = SentData._sentence_to_dict(word_dict, self.sent_words)
+#######################################
+## DATA OBJECT FOR SEQUENTAIL LABELS ##
+#######################################
 
-#	 @staticmethod
-#	 def _preprocess_sentence(sent, labels):
-#		 sent_words = list(sent.lower().strip().split(" "))
-#		 if "." in sent_words[-1] and len(sent_words[-1]) > 1:
-#			 sent_words[-1] = sent_words[-1].replace(".","")
-#			 sent_words.append(".")
-#		 sent_words = [w for w in sent_words if len(w) > 0]
-#		 for i in range(len(sent_words)):
-#			 if len(sent_words[i]) > 1 and "." in sent_words[i]:
-#				 sent_words[i] = sent_words[i].replace(".","")
-#		 return sent_words
+class SeqData:
 
-#	 @staticmethod
-#	 def _sentence_to_dict(word_dict, sent, labels):
-#		 vocab_words = list()
-#		 vocab_words += [word_dict['<s>']]
-#		 vocab_words += SentData._word_seq_to_dict(sent, word_dict)
-#		 vocab_words += [word_dict['</s>']]
-#		 vocab_words = np.array(vocab_words, dtype=np.int32)
+	def __init__(self, sentence, label, default_label=None):
+		self.sent_words, self.label_words = SeqData._preprocess_sentence(sentence, label, default_label=default_label)
+		assert len(self.label_words) == len(self.sent_words), "Number of labels have to fit to number of words in the sentence. \n" + \
+															  "Original sentence: \"%s\"\n" % (str(sentence)) + \
+															  "Splitted sentence: \"%s\"\n" % (str(self.sent_words)) + \
+															  "Label list: \"%s\"\n" % (str(self.label_words)) + \
+															  "Length sentence: %i, Length labels: %i" % (len(self.sent_words), len(self.label_words))
+		self.sent_vocab = None
+		self.label = None
 
-#		 return vocab_words
+	def translate_to_dict(self, word_dict):
+		self.sent_vocab, self.label = SeqData._sentence_to_dict(word_dict, self.sent_words, self.label_words)
 
-#	 @staticmethod
-#	 def _word_seq_to_dict(word_seq, word_dict, labels):
-#		 vocab_words = list()
-#		 for w_index, w in enumerate(word_seq):
-#			 if len(w) <= 0:
-#				 continue
-#			 if w in word_dict:
-#				 vocab_words.append(word_dict[w])
-#			 elif "-" in w:
-#				 vocab_words += SentData._word_seq_to_dict(w.split("-"), word_dict, labels=[labels[w_index]])
-#			 elif "/" in w:
-#				 vocab_words += SentData._word_seq_to_dict(w.split("/"), word_dict)
-#			 else:
-#				 subword = re.sub('\W+','', w)
-#				 if subword in word_dict:
-#					 vocab_words.append(word_dict[subword])
-#		 return vocab_words
+	def number_words_not_in_dict(self, word_dict):
+		missing_words = 0
+		for w in (self.sent_words):
+			if w not in word_dict:
+				missing_words += 1
+		return missing_words, len(self.sent_words)
+
+	@staticmethod
+	def _preprocess_sentence(sent, labels, default_label=None):
+		sent_words = list(sent.lower().strip().split(" "))
+		sent_words = [w for w in sent_words if len(w) > 0]
+		if "." in sent_words[-1] and len(sent_words[-1]) > 1:
+			sent_words[-1] = sent_words[-1].replace(".","")
+			sent_words.append(".")
+			sent_words = [w for w in sent_words if len(w) > 0]
+			if len(sent_words) == len(labels) + 1 and default_label is not None:
+				labels.append(default_label)
+		
+		for i in range(len(sent_words)):
+			if len(sent_words[i]) > 1 and "." in sent_words[i]:
+				sent_words[i] = sent_words[i].replace(".","")
+		return sent_words, labels
+
+	@staticmethod
+	def _sentence_to_dict(word_dict, sent, labels):
+		vocab_words = list()
+		vocab_words += [word_dict['<s>']]
+		vocab_words += SeqData._word_seq_to_dict(sent, word_dict)
+		vocab_words += [word_dict['</s>']]
+		vocab_words = np.array(vocab_words, dtype=np.int32)
+
+		if isinstance(labels[0], list):
+			labels = np.array([[-1]*len(labels[0])] + labels + [[-1]*len(labels[0])], dtype=np.int32)
+		else:
+			labels = np.array([-1] + labels + [-1], dtype=np.int32)
+
+		if labels.shape[0] != vocab_words.shape[0]:
+			print("Labels and vocab words do not fit for sentence " + str(sent))
+			print("Label shape %i, vocab words shape %i" % (labels.shape[0], vocab_words.shape[0]))
+			print("Before: labels %i, sentence %i " % (len(labels), len(sent)))
+
+		return vocab_words, labels
+
+	@staticmethod
+	def _word_seq_to_dict(word_seq, word_dict):
+		"""
+		In difference to SentData, this processing strictly keeps the length of the sequence equal.
+		Thus, we don't split words like "blue-shiny" but replace it by the unknown token.
+		"""
+		vocab_words = list()
+		for w_index, w in enumerate(word_seq):
+			if len(w) <= 0:
+				print("[!] SKIPPING WORD")
+				continue
+			if w in word_dict:
+				vocab_words.append(word_dict[w])
+			else:
+				subword = re.sub('\W+','', w)
+				if subword in word_dict:
+					vocab_words.append(word_dict[subword])
+				else:
+					vocab_words.append(word_dict['UNK'])
+		return vocab_words
+
+class POSData(SeqData):
+
+	LABEL_LIST = {
+		"ADJ": 0,
+		"ADP": 1,
+		"ADV": 2,
+		"CCONJ": 3,
+		"DET": 4,
+		"INTJ": 5,
+		"NOUN": 6,
+		"NUM": 7,
+		"PART": 8,
+		"PRON": 9,
+		"PROPN": 10,
+		"PUNCT": 11,
+		"SYM": 12,
+		"VERB": 13,
+		"X": -1
+	}
+
+	def __init__(self, sentence, pos_tags):
+		super(POSData, self).__init__(sentence, pos_tags)
+
+class VUASeqData(SeqData):
+	
+	#it is called LABEL_LIST, but it is a dictionary.
+	LABEL_LIST = {
+		"metaphor": 1, 
+		"literal": 0
+	}
+
+	def __init__(self, sentence, pos, label):
+		super(VUASeqData, self).__init__(sentence, [[l, POSData.LABEL_LIST[p]] for l, p in zip(label, pos)], default_label=[-1, -1])
+		
+	def get_data(self, chose_label = "metaphor"):
+		"""access to data and label.
+		chose_label == 'metaphor' gives the sequence metaphor labels,
+		chose_label == 'pos' gives the POS labels."""
+		if chose_label == "metaphor":
+			return self.sent_vocab, self.label[:,0]
+		else: 
+			return self.sent_vocab, self.label[:,1]
+
+	def get_sentence(self):
+		return " ".join(self.sent_words)
+
+	@staticmethod
+	def label_to_string(label):
+		for key, val in VUASeqData.LABEL_LIST.items():
+			if val == label:
+				return key
+
 
 if __name__ == "__main__":
-	DatasetHandler.load_VUA_datasets()
+	train_data, _, _ = DatasetHandler.load_VUAseq_datasets()
+	train_data.print_statistics()
+	batch = train_data.get_batch(4, toTorch=True)
+	for e in batch:
+		print(e)
 

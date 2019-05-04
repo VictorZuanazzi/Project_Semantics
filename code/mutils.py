@@ -20,7 +20,7 @@ from shutil import copyfile
 from model import MultiTaskEncoder
 from data import DatasetHandler, debug_level, set_debug_level, DatasetTemplate, SentData
 from vocab import load_word2vec_from_file
-from task import SNLITask, SSTTask, VUATask
+from task import SNLITask, SSTTask, VUATask, VUASeqTask
 
 PARAM_CONFIG_FILE = "param_config.pik"
 
@@ -136,6 +136,9 @@ def args_to_params(args):
 	if args.task_VUA > 0:
 		task_freq_dict[VUATask.NAME] = args.task_VUA
 		add_head(VUATask.NAME, args.task_VUA_head)
+	if args.task_VUAseq > 0:
+		task_freq_dict[VUASeqTask.NAME] = args.task_VUAseq
+		add_head(VUATask.NAME, args.task_VUAseq_head)
 
 	tasks = sorted(list(task_freq_dict.keys()))
 
@@ -163,7 +166,6 @@ def get_dict_val(checkpoint_dict, key, default_val):
 		return checkpoint_dict[key]
 	else:
 		return default_val
-
 
 
 ####################################

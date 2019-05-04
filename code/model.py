@@ -297,13 +297,13 @@ class EncoderBOW(EncoderModule):
 	def forward(self, embed_words, lengths, word_level=False, debug=False):
 		# Embeds are of shape [batch, time, embed_dim]
 		# Lengths is of shape [batch]
+		word_positions = torch.arange(start=0, end=embed_words.shape[1], dtype=lengths.dtype, device=embed_words.device)
+		mask = (word_positions.reshape(shape=[1, -1, 1]) < lengths.reshape([-1, 1, 1])).float()
+		out = torch.sum(mask * embed_words, dim=1) / lengths.reshape([-1, 1]).float()
 		if not word_level:
-			word_positions = torch.arange(start=0, end=embed_words.shape[1], dtype=lengths.dtype, device=embed_words.device)
-			mask = (word_positions.reshape(shape=[1, -1, 1]) < lengths.reshape([-1, 1, 1])).float()
-			out = torch.sum(mask * embed_words, dim=1) / lengths.reshape([-1, 1]).float()
 			return out
 		else:
-			return embed_words
+			return out, embed_words
 
 
 class EncoderLSTM(EncoderModule):
@@ -318,7 +318,7 @@ class EncoderLSTM(EncoderModule):
 		if not word_level:
 			return final_states
 		else:
-			return word_outputs
+			return final_states, word_outputs
 
 
 class EncoderBILSTM(EncoderModule):
@@ -335,7 +335,7 @@ class EncoderBILSTM(EncoderModule):
 		if not word_level:
 			return final_states
 		else:
-			return word_outputs
+			return final_states, word_outputs
 
 
 class EncoderBILSTMPool(EncoderModule):
@@ -349,15 +349,15 @@ class EncoderBILSTMPool(EncoderModule):
 	def forward(self, embed_words, lengths, word_level=False, debug=False):
 		# embed words is of shape [batch_size * 2, time, word_dim]
 		_, word_outputs = self.lstm_chain(embed_words, lengths)
+		# Max time pooling
+		pooled_features, pool_indices = EncoderBILSTMPool.pool_over_time(word_outputs, lengths, pooling='MAX')
 		if not word_level:
-			# Max time pooling
-			pooled_features, pool_indices = EncoderBILSTMPool.pool_over_time(word_outputs, lengths, pooling='MAX')
 			if debug:
 				return pooled_features, pool_indices
 			else:
 				return pooled_features
 		else:
-			return word_outputs
+			return pooled_features, word_outputs
 
 	@staticmethod
 	def pool_over_time(outputs, lengths, pooling='MAX'):

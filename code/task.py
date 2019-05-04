@@ -13,6 +13,20 @@ from data import DatasetTemplate, DatasetHandler, debug_level
 from vocab import get_id2word_dict
 
 
+def create_task(model, task, model_params, debug=False):
+	if task == SNLITask.NAME:
+		return SNLITask(model, model_params, load_data=True, debug=debug)
+	elif task == SSTTask.NAME:
+		return SSTTask(model, model_params, load_data=True, debug=debug)
+	elif task == VUATask.NAME:
+		return VUATask(model, model_params, load_data=True, debug=debug)
+	elif task == VUASeqTask.NAME:
+		return VUASeqTask(model, model_params, load_data=True, debug=debug)
+	else:
+		print("[!] ERROR: Unknown task " + str(task))
+		sys.exit(1)
+
+
 class TaskTemplate:
 
 	def __init__(self, model, model_params, name, load_data=True, debug=False):
@@ -65,6 +79,11 @@ class TaskTemplate:
 			pred_labels, batch_labels = self._eval_batch(batch)
 			preds_list += torch.squeeze(pred_labels).tolist()
 			label_list += torch.squeeze(batch_labels).tolist()
+
+		to_remove = [i for i, l in enumerate(label_list) if l < 0]
+		for r_index in sorted(to_remove)[::-1]:
+			del preds_list[r_index]
+			del label_list[r_index]
 		
 		# Metric output
 		preds_list = np.array(preds_list)
@@ -117,8 +136,8 @@ class TaskTemplate:
 
 
 	@staticmethod
-	def _create_CrossEntropyLoss():
-		loss_module = nn.CrossEntropyLoss()
+	def _create_CrossEntropyLoss(weight=None, ignore_index=-1):
+		loss_module = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
 		if torch.cuda.is_available():
 			loss_module = loss_module.cuda()
 		return loss_module
@@ -282,7 +301,7 @@ class SNLITask(TaskTemplate):
 		if not self.classifier.is_word_level():
 			out = self.classifier(embed_s1, embed_s2, applySoftmax=applySoftmax)
 		else:
-			out = self.classifier(embed_s1, lengths[0], embed_s2, lengths[1], applySoftmax=applySoftmax)
+			out = self.classifier(embed_s1[1], lengths[0], embed_s2[1], lengths[1], applySoftmax=applySoftmax)
 		return out
 
 
@@ -369,12 +388,14 @@ class SSTTask(TaskTemplate):
 		
 		return pred_labels, batch_labels
 
+
 class VUATask(TaskTemplate):
 
 	NAME = "VUA_Metaphor_Detection"
 
 	def __init__(self, model, model_params, load_data=True, debug=False):
 		super(VUATask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=VUATask.NAME)
+		self.classifier_params["embed_sent_dim"] *= 2
 		self.classifier = SimpleClassifier(self.classifier_params, 2)
 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
 		if torch.cuda.is_available():
@@ -389,11 +410,9 @@ class VUATask(TaskTemplate):
 	def train_step(self, batch_size, loop_dataset=True):
 		assert self.train_dataset is not None, "[!] ERROR: Training dataset not loaded. Please load the dataset beforehand for training."
 		
-		embeds, lengths, batch_labels, _ = self.train_dataset.get_batch(batch_size, loop_dataset=loop_dataset, toTorch=True)
+		embeds, lengths, batch_labels, word_pos = self.train_dataset.get_batch(batch_size, loop_dataset=loop_dataset, toTorch=True)
 		
-		sent_embeds = self.model.encode_sentence(embeds, lengths)
-		out = self.classifier(sent_embeds, applySoftmax=False)
-
+		out = self._forward_model(embeds, lengths, word_pos, applySoftmax=False)
 		loss = self.loss_module(out, batch_labels)
 
 		_, pred_labels = torch.max(out, dim=-1)
@@ -403,14 +422,72 @@ class VUATask(TaskTemplate):
 
 
 	def _eval_batch(self, batch):
-		embeds, lengths, batch_labels, _ = batch
+		embeds, lengths, batch_labels, word_pos = batch
 		
-		sent_embeds = self.model.encode_sentence(embeds, lengths)
-		preds = self.classifier(sent_embeds, applySoftmax=True)
-		
+		preds = self._forward_model(embeds, lengths, word_pos, applySoftmax=True)
 		_, pred_labels = torch.max(preds, dim=-1)
 		
 		return pred_labels, batch_labels
+
+
+	def _forward_model(self, embeds, lengths, word_pos, applySoftmax=False):
+		batch_size = embeds.size(0)
+		time_dim = embeds.size(1)
+		sent_embeds, word_embeds = self.model.encode_sentence(embeds, lengths, word_level=True)
+		word_embeds = word_embeds.view(-1, word_embeds.size(2))
+		indexes = (lengths - 1) + torch.arange(batch_size, device=word_embeds.device, dtype=lengths.dtype) * time_dim
+		sel_word_embeds = word_embeds[indexes,:]
+		metaphor_embeds = torch.cat((sent_embeds, sel_word_embeds), dim=-1)
+		out = self.classifier(metaphor_embeds, applySoftmax=False)
+		return out
+
+
+class VUASeqTask(TaskTemplate):
+
+	NAME = "VUA_Sequential_Metaphor_Detection"
+
+	def __init__(self, model, model_params, load_data=True, debug=False):
+		super(VUASeqTask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=VUASeqTask.NAME)
+		self.classifier = SimpleClassifier(self.classifier_params, 2)
+		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
+		if torch.cuda.is_available():
+			self.classifier = self.classifier.cuda()
+			self.loss_module = self.loss_module.cuda()
+
+
+	def _load_datasets(self):
+		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_VUAseq_datasets(debug_dataset=self.debug)
+
+
+	def train_step(self, batch_size, loop_dataset=True):
+		assert self.train_dataset is not None, "[!] ERROR: Training dataset not loaded. Please load the dataset beforehand for training."
+		
+		embeds, lengths, batch_labels = self.train_dataset.get_batch(batch_size, loop_dataset=loop_dataset, toTorch=True)
+		batch_labels = batch_labels.view(-1)
+
+		out = self._forward_model(embeds, lengths, applySoftmax=False)
+		loss = self.loss_module(out, batch_labels)
+
+		_, pred_labels = torch.max(out, dim=-1)
+		acc = torch.sum(pred_labels == batch_labels).float() / torch.sum(batch_labels >= 0).float()
+
+		return loss, acc
+
+
+	def _eval_batch(self, batch):
+		embeds, lengths, batch_labels = batch
+		
+		preds = self._forward_model(embeds, lengths, applySoftmax=True)
+		_, pred_labels = torch.max(preds, dim=-1)
+		
+		return pred_labels, batch_labels.view(-1)
+
+
+	def _forward_model(self, embeds, lengths, applySoftmax=False):
+		_, word_embeds = self.model.encode_sentence(embeds, lengths, word_level=True)
+		word_embeds = word_embeds.view(-1, word_embeds.shape[2])
+		out = self.classifier(word_embeds, applySoftmax=False)
+		return out
 
 # class POSTask(TaskTemplate):
 
