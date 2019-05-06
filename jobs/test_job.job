@@ -23,7 +23,7 @@ export LD_LIBRARY_PATH=/hpc/eb/Debian9/cuDNN/7.1-CUDA-8.0.44-GCCcore-5.4.0/lib64
 
 EXPDIR=$TMPDIR
 # CHANGE CHECKPOINT DIRECTORY TO TASK NAME!
-CHECKPOINT_PATH=$EXPDIR/code/checkpoints/test
+CHECKPOINT_PATH=$HOME/Project_Semantics/code/checkpoints/test
 # Create new empty directories for copying
 mkdir -p $EXPDIR
 mkdir -p $EXPDIR/code

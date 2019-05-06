@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=03:00:00
+#SBATCH --time=04:00:00
 #SBATCH --mem=60000M
 #SBATCH --partition=gpu_shared_course
 #SBATCH --gres=gpu:1
@@ -20,7 +20,7 @@ export LD_LIBRARY_PATH=/hpc/eb/Debian9/cuDNN/7.1-CUDA-8.0.44-GCCcore-5.4.0/lib64
 
 EXPDIR=$TMPDIR
 # CHANGE CHECKPOINT DIRECTORY TO TASK NAME!
-CHECKPOINT_PATH=$EXPDIR/code/checkpoints/SNLI_VUAseq
+CHECKPOINT_PATH=$HOME/Project_Semantics/code/checkpoints/SNLI_VUAseq
 # Create new empty directories for copying
 mkdir -p $EXPDIR
 mkdir -p $EXPDIR/code
