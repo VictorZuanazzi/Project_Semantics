@@ -218,6 +218,7 @@ class MultiTaskSampler:
 			if acc > self.highest_eval_accs[t.name]:
 				self.highest_eval_accs[t.name] = acc
 				print("Highest accuracy so far for task " + t.name)
+				reached_new_opt = True
 			accuracy_dict[t.name] = detailed_acc
 		return accuracy_dict, reached_new_opt
 

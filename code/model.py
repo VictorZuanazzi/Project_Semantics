@@ -18,7 +18,8 @@ class MultiTaskEncoder(nn.Module):
 		self.embeddings = nn.Embedding(wordvec_tensor.shape[0], wordvec_tensor.shape[1])
 		with torch.no_grad():
 			self.embeddings.weight.data.copy_(torch.from_numpy(wordvec_tensor))
-			self.embeddings.weight.requires_grad = False
+			self.embeddings.weight.requires_grad = get_param_val(model_params, "finetune_embeds", False)
+		self.embed_dropout = RNNDropout(get_param_val(model_params, "embed_dropout", 0.0))
 
 		self.model_type = model_type
 		self.model_params = model_params
@@ -51,6 +52,7 @@ class MultiTaskEncoder(nn.Module):
 
 	def encode_sentence(self, words, lengths, word_level=False, debug=False):
 		word_embeds = self.embeddings(words)
+		word_embeds = self.embed_dropout(word_embeds)
 		sent_embeds = self.encoder(word_embeds, lengths, word_level=word_level)
 		return sent_embeds
 
@@ -155,9 +157,8 @@ class ESIM_Head(ClassifierHead):
 	def __init__(self, model_params):
 		super(ESIM_Head, self).__init__(model_params, word_level=True)
 		embed_sent_dim = model_params["embed_sent_dim"]
-		fc_dropout = model_params["fc_dropout"] 
-		fc_dim = model_params["fc_dim"]
-		n_classes = model_params["nli_classes"]
+		fc_dropout = get_param_val(model_params, "fc_dropout", 0.0) 
+		n_classes = get_param_val(model_params, "nli_classes", 3)
 		use_bias = get_param_val(model_params, "use_bias", False)
 		self.use_scaling = get_param_val(model_params, "use_scaling", False)
 		attn_proj_dim = get_param_val(model_params, "attn_proj", 0)
@@ -177,7 +178,7 @@ class ESIM_Head(ClassifierHead):
 		self.projection_layer = nn.Sequential(
 			nn.Linear(4 * embed_sent_dim, hidden_size),
 			nn.ReLU(),
-			nn.Dropout(p=fc_dropout)
+			RNNDropout(p=fc_dropout)
 		)
 		self.BiLSTM_decoder = PyTorchLSTMChain(input_size=hidden_size, 
 											   hidden_size=hidden_size,
@@ -436,6 +437,36 @@ class PyTorchLSTMChain(nn.Module):
 #####################
 ## Helper function ##
 #####################
+
+# Class widely inspired from:
+# https://github.com/allenai/allennlp/blob/master/allennlp/modules/input_variational_dropout.py
+# Here copied from https://github.com/coetaur0/ESIM/blob/master/esim/layers.py
+class RNNDropout(nn.Dropout):
+    """
+    Dropout layer for the inputs of RNNs.
+
+    Apply the same dropout mask to all the elements of the same sequence in
+    a batch of sequences of size (batch, sequences_length, embedding_dim).
+    """
+
+    def forward(self, sequences_batch):
+        """
+        Apply dropout to the input batch of sequences.
+
+        Args:
+            sequences_batch: A batch of sequences of vectors that will serve
+                as input to an RNN.
+                Tensor of size (batch, sequences_length, emebdding_dim).
+
+        Returns:
+            A new tensor on which dropout has been applied.
+        """
+        ones = sequences_batch.data.new_ones(sequences_batch.shape[0],
+                                             sequences_batch.shape[-1])
+        dropout_mask = nn.functional.dropout(ones, self.p, self.training,
+                                             inplace=False)
+        return dropout_mask.unsqueeze(1) * sequences_batch
+
 
 def get_param_val(param_dict, key, default_val):
 	if key in param_dict:

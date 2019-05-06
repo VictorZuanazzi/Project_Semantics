@@ -218,6 +218,8 @@ if __name__ == '__main__':
 	# Model parameters
 	parser.add_argument("--embed_dim", help="Embedding dimensionality of sentence", type=int, default=2048)
 	parser.add_argument("--model", help="Which encoder model to use. 0: BOW, 1: LSTM, 2: Bi-LSTM, 3: Bi-LSTM with max pooling", type=int, default=0)
+	parser.add_argument("--embed_dropout", help="Dropout applied on the input embeddings", type=float, default=0.0)
+	parser.add_argument("--finetune_embeds", help="Whether to finetune the embeddings or not", action="store_true")
 	# Classifier parameters (TODO: MAKE IT TASK DEPENDENT)
 	parser.add_argument("--fc_dim", help="Number of hidden units in fully connected layers (classifier)", type=int, default=512)
 	parser.add_argument("--fc_dropout", help="Dropout probability in FC classifier", type=float, default=0.0)
