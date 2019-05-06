@@ -78,6 +78,8 @@ class MultiTaskTrain:
 		# Setup training parameters
 		parameters_to_optimize = self._get_all_parameters()
 		print("Model parameters: " + str([name for name, p in self.model.named_parameters()]))
+		for t in self.tasks:
+			print("Task " + t.name + " parameters: " + str([name for name, p in t.classifier.named_parameters()]))
 		checkpoint_dict = self.load_recent_model()
 		start_iter = get_dict_val(checkpoint_dict, "iteration", 0)
 		evaluation_dict = get_dict_val(checkpoint_dict, "evaluation_dict", dict())
@@ -118,7 +120,7 @@ class MultiTaskTrain:
 				start_time = time.time()
 				self.lr_scheduler.step()
 				loss = self.multitask_sampler.sample_batch_loss(index_iter)
-				self.model.zero_grad()
+				self.optimizer.zero_grad()
 				loss.backward()
 				torch.nn.utils.clip_grad_norm_(parameters_to_optimize, max_gradient_norm)
 				self.optimizer.step()
