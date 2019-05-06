@@ -90,14 +90,22 @@ class SimpleClassifier(ClassifierHead):
 		embed_sent_dim = model_params["embed_sent_dim"]
 		fc_dropout = model_params["fc_dropout"] 
 		fc_dim = model_params["fc_dim"]
+		fc_nonlinear = get_param_val(model_params, "fc_nonlinear", False)
+		fc_num_layers = get_param_val(model_params, "fc_num_layers", 1)
 
 		input_dim = embed_sent_dim
-		self.classifier = nn.Sequential(
-			nn.Dropout(p=fc_dropout),
-			nn.Linear(input_dim, fc_dim),
-			nn.ReLU(),
-			nn.Linear(fc_dim, num_classes)
-		)
+		layer_list = list()
+		for n in range(fc_num_layers):
+			layer_list.append(nn.Dropout(p=fc_dropout))
+			layer_list.append(nn.Linear(input_dim, fc_dim))
+			if fc_nonlinear:
+				layer_list.append(nn.ReLU())
+			input_dim = fc_dim
+
+		layer_list.append(nn.Dropout(p=fc_dropout))
+		layer_list.append(nn.Linear(input_dim, num_classes))
+
+		self.classifier = nn.Sequential(*layer_list)
 		self.softmax_layer = nn.Softmax(dim=-1)
 
 

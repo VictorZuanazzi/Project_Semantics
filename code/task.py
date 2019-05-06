@@ -139,6 +139,12 @@ class TaskTemplate:
 		pass
 
 
+	def print_classifier(self):
+		print("="*75 + "\n" + self.name + " classifier:\n"+"-"*75)
+		print(self.classifier)
+		print("="*75)
+
+
 	@staticmethod
 	def _create_CrossEntropyLoss(weight=None, ignore_index=-1):
 		loss_module = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
@@ -265,6 +271,7 @@ class SNLITask(TaskTemplate):
 		if torch.cuda.is_available():
 			self.classifier = self.classifier.cuda()
 			self.loss_module = self.loss_module.cuda()
+		self.print_classifier()
 
 
 	def _create_classifier(self):
@@ -367,6 +374,7 @@ class SSTTask(TaskTemplate):
 		if torch.cuda.is_available():
 			self.classifier = self.classifier.cuda()
 			self.loss_module = self.loss_module.cuda()
+		self.print_classifier()
 
 
 	def _load_datasets(self):
@@ -412,6 +420,7 @@ class VUATask(TaskTemplate):
 		if torch.cuda.is_available():
 			self.classifier = self.classifier.cuda()
 			self.loss_module = self.loss_module.cuda()
+		self.print_classifier()
 
 
 	def _load_datasets(self):
@@ -464,6 +473,7 @@ class VUASeqTask(TaskTemplate):
 		if torch.cuda.is_available():
 			self.classifier = self.classifier.cuda()
 			self.loss_module = self.loss_module.cuda()
+		self.print_classifier()
 
 
 	def _load_datasets(self):

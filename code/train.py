@@ -61,7 +61,7 @@ class MultiTaskTrain:
 			print("[!] ERROR: Unknown optimizer: " + str(optimizer_params["optimizer"]))
 			sys.exit(1)
 		self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, optimizer_params["lr_decay_step"], gamma=optimizer_params["lr_decay_factor"])
-		self.max_red_steps = optimizer_params["lr_max_red_steps"]
+
 
 
 	def _prepare_checkpoint(self, checkpoint_path):
@@ -220,10 +220,11 @@ if __name__ == '__main__':
 	parser.add_argument("--model", help="Which encoder model to use. 0: BOW, 1: LSTM, 2: Bi-LSTM, 3: Bi-LSTM with max pooling", type=int, default=0)
 	parser.add_argument("--embed_dropout", help="Dropout applied on the input embeddings", type=float, default=0.0)
 	parser.add_argument("--finetune_embeds", help="Whether to finetune the embeddings or not", action="store_true")
-	# Classifier parameters (TODO: MAKE IT TASK DEPENDENT)
+	# Classifier parameters
 	parser.add_argument("--fc_dim", help="Number of hidden units in fully connected layers (classifier)", type=int, default=512)
 	parser.add_argument("--fc_dropout", help="Dropout probability in FC classifier", type=float, default=0.0)
 	parser.add_argument("--fc_nonlinear", help="Whether to add a non-linearity (tanh) between classifier layers or not", action="store_true")
+	parser.add_argument("--fc_num_layers", help="Number of _hidden_ layers in the classifier (excluding the final classification layer)", type=int, default=1)
 	# Output control
 	parser.add_argument("--seed", help="Seed to make experiments reproducable", type=int, default=42)
 	parser.add_argument("--cluster", help="Enable option if code is executed on cluster. Reduces output size", action="store_true")
@@ -246,7 +247,6 @@ if __name__ == '__main__':
 	parser.add_argument("--learning_rate", help="Learning rate of the optimizer", type=float, default=0.1)
 	parser.add_argument("--lr_decay", help="Decay of learning rate of the optimizer. Always applied if eval accuracy droped compared to mean of last two epochs", type=float, default=0.2)
 	parser.add_argument("--lr_decay_step", help="Number of steps after which learning rate should be decreased", type=float, default=1e6)
-	parser.add_argument("--lr_max_red_steps", help="Maximum number of times learning rate should be decreased before terminating", type=int, default=4)
 	parser.add_argument("--weight_decay", help="Weight decay of the optimizer", type=float, default=0.0)
 	parser.add_argument("--optimizer", help="Which optimizer to use. 0: SGD, 1: Adam", type=int, default=0)
 	parser.add_argument("--momentum", help="Apply momentum to SGD optimizer", type=float, default=0.0)
