@@ -28,6 +28,8 @@ class MultiTaskEncoder(nn.Module):
 			self.embeddings = self.embeddings.cuda()
 			self.encoder = self.encoder.cuda()
 
+		self.apply(ESIM_Head._init_esim_weights)
+
 
 	def _choose_encoder(self, model_type, model_params):
 		if model_type == MultiTaskEncoder.AVERAGE_WORD_VECS:
@@ -158,13 +160,18 @@ class ESIM_Head(ClassifierHead):
 		n_classes = model_params["nli_classes"]
 		use_bias = get_param_val(model_params, "use_bias", False)
 		self.use_scaling = get_param_val(model_params, "use_scaling", False)
-		print(model_params)
+		attn_proj_dim = get_param_val(model_params, "attn_proj", 0)
+
 		if use_bias:
 			self.bias_prem = nn.Parameter(torch.zeros(1), requires_grad=True)
 			self.bias_hyp = nn.Parameter(torch.zeros(1), requires_grad=True)
 		else:
 			self.bias_prem, self.bias_hyp = None, None
 
+		if attn_proj_dim == 0:
+			self.attn_projection = None # nn.Identity()
+		else:
+			self.attn_projection = nn.Linear(embed_sent_dim, attn_proj_dim)
 
 		hidden_size = int(embed_sent_dim/2)
 		self.projection_layer = nn.Sequential(
@@ -185,10 +192,14 @@ class ESIM_Head(ClassifierHead):
 		self.softmax_layer = nn.Softmax(dim=-1)
 		self.last_attention_map = None
 
+		self.apply(ESIM_Head._init_esim_weights)
+
 
 	def forward(self, word_embed_premise, length_premise, word_embed_hypothesis, length_hypothesis, applySoftmax=False):
 		# Cross attention
-		prem_opponent, hyp_opponent = self._cross_attention(word_embed_premise, length_premise, word_embed_hypothesis, length_hypothesis)
+		prem_to_hyp_attn, hyp_to_prem_attn = self._cross_attention(word_embed_premise, length_premise, word_embed_hypothesis, length_hypothesis)
+		prem_opponent = torch.bmm(prem_to_hyp_attn, word_embed_hypothesis)
+		hyp_opponent = torch.bmm(hyp_to_prem_attn, word_embed_premise)
 		# Decode both sentences
 		prem_sentence = self._decode_sentence(word_embed_premise, length_premise, prem_opponent)
 		hyp_sentence = self._decode_sentence(word_embed_hypothesis, length_hypothesis, hyp_opponent)
@@ -204,7 +215,7 @@ class ESIM_Head(ClassifierHead):
 	def _decode_sentence(self, word_embeds, lengths, opponents):
 		# Combine features
 		decode_features = torch.cat((word_embeds, opponents, 
-									 torch.abs(word_embeds - opponents), 
+									 (word_embeds - opponents), # torch.abs
 									 word_embeds * opponents), dim=2)
 		# Projection layer to reduce dimension
 		proj_features = self.projection_layer(decode_features)
@@ -220,6 +231,9 @@ class ESIM_Head(ClassifierHead):
 
 	def _cross_attention(self, word_embed_premise, length_premise, word_embed_hypothesis, length_hypothesis):
 		# Function bmm: If batch1 is a (b,n,m) tensor, batch2 is a (b,m,p) tensor, out will be a (b,n,p) tensor.
+		if self.attn_projection is not None:
+			word_embed_premise = self.attn_projection(word_embed_premise)
+			word_embed_hypothesis = self.attn_projection(word_embed_hypothesis)
 		similarity_matrix = torch.bmm(word_embed_premise,
 									  word_embed_hypothesis.transpose(2, 1).contiguous()) # Shape: [batch, prem len, hyp len]
 		if self.use_scaling:
@@ -231,9 +245,7 @@ class ESIM_Head(ClassifierHead):
 		self.last_prem_attention_map = prem_to_hyp_attn.cpu().data.numpy()
 		self.last_hyp_attention_map = hyp_to_prem_attn.cpu().data.numpy()
 
-		prem_opponent = torch.bmm(prem_to_hyp_attn, word_embed_hypothesis)
-		hyp_opponent = torch.bmm(hyp_to_prem_attn, word_embed_premise)
-		return prem_opponent, hyp_opponent
+		return prem_to_hyp_attn, hyp_to_prem_attn
 
 
 	def _masked_softmax(self, _input, lengths, bias=None):

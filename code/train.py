@@ -77,6 +77,7 @@ class MultiTaskTrain:
 
 		# Setup training parameters
 		parameters_to_optimize = self._get_all_parameters()
+		print("Model parameters: " + str([name for name, p in self.model.named_parameters()]))
 		checkpoint_dict = self.load_recent_model()
 		start_iter = get_dict_val(checkpoint_dict, "iteration", 0)
 		evaluation_dict = get_dict_val(checkpoint_dict, "evaluation_dict", dict())
@@ -142,7 +143,8 @@ class MultiTaskTrain:
 				# Evaluation
 				if (index_iter + 1) % eval_freq == 0:
 					self.model.eval()
-					evaluation_dict[index_iter+1] = self.multitask_sampler.evaluate_all()
+					eval_iter_dict, reached_new_opt = self.multitask_sampler.evaluate_all()
+					evaluation_dict[index_iter+1] = eval_iter_dict
 					self.model.train()
 
 					if writer is not None:
@@ -150,6 +152,9 @@ class MultiTaskTrain:
 						export_weight_parameters(index_iter+1)
 						for t in self.tasks:
 							t.add_to_summary(writer, index_iter+1)
+
+					if reached_new_opt:
+						save_train_model(index_iter+1)
 
 				# Saving
 				if (index_iter + 1) % save_freq == 0:

@@ -30,6 +30,7 @@ class DatasetHandler:
 
 	SNLI_DATASETS = None
 	SNLI_EXTRA_DATASETS = None
+	MNLI_DATASETS = None
 	SST_DATASETS = None
 	VUA_DATASETS = None
 	VUA_SEQ_DATASETS = None
@@ -37,13 +38,16 @@ class DatasetHandler:
 
 
 	@staticmethod
-	def _load_all_type_datasets(dataset_fun, debug_dataset=False, data_types=None):
+	def _load_all_type_datasets(dataset_fun, debug_dataset=False, data_types=None, data_path=None):
 		_, word2id_dict, _ = load_word2vec_from_file()
 		dataset_list = list()
 		if data_types is None:
 			data_types = ['train' if not debug_dataset else 'dev', 'dev', 'test']
 		for data_type in data_types:
-			dataset = dataset_fun(data_type, shuffle_data=('train' in data_type))
+			if data_path is None:
+				dataset = dataset_fun(data_type, shuffle_data=('train' in data_type))
+			else:
+				dataset = dataset_fun(data_type, data_path=data_path, shuffle_data=('train' in data_type))
 			dataset.set_vocabulary(word2id_dict)
 			dataset.print_statistics()
 			dataset_list.append(dataset)
@@ -60,6 +64,12 @@ class DatasetHandler:
 		if DatasetHandler.SNLI_EXTRA_DATASETS is None:
 			DatasetHandler.SNLI_EXTRA_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, data_types=['test_hard', 'test_easy']) 
 		return DatasetHandler.SNLI_EXTRA_DATASETS[0], DatasetHandler.SNLI_EXTRA_DATASETS[1]
+	
+	@staticmethod
+	def load_MultiNLI_datasets(debug_dataset=False):
+		if DatasetHandler.MNLI_DATASETS is None:
+			DatasetHandler.MNLI_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, data_path="../data/multinli_1.0", data_types=['train', 'dev.matched', 'dev.mismatched'], debug_dataset=debug_dataset)
+		return DatasetHandler.MNLI_DATASETS[0], DatasetHandler.MNLI_DATASETS[1], DatasetHandler.MNLI_DATASETS[2]
 
 	@staticmethod
 	def load_SST_datasets(debug_dataset=False):
@@ -953,7 +963,14 @@ class POSData(SeqData):
 	}
 
 	def __init__(self, sentence, pos_tags):
-		super(POSData, self).__init__(sentence, pos_tags)
+		super(POSData, self).__init__(sentence, [POSDat.LABEL_LIST[p] for p in pos_tags])
+
+	@staticmethod
+	def label_to_string(label):
+		for key, val in POSData.LABEL_LIST.items():
+			if val == label:
+				return key
+
 
 class VUASeqData(SeqData):
 	

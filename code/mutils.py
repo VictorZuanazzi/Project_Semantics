@@ -20,7 +20,7 @@ from shutil import copyfile
 from model import MultiTaskEncoder
 from data import DatasetHandler, debug_level, set_debug_level, DatasetTemplate, SentData
 from vocab import load_word2vec_from_file
-from task import SNLITask, SSTTask, VUATask, VUASeqTask
+from task import create_task, SNLITask, SSTTask, VUATask, VUASeqTask
 
 PARAM_CONFIG_FILE = "param_config.pik"
 
@@ -30,7 +30,7 @@ PARAM_CONFIG_FILE = "param_config.pik"
 ## MODEL LOADING ##
 ###################
 
-def load_model(checkpoint_path, model=None, optimizer=None, lr_scheduler=None, load_best_model=False):
+def load_model(checkpoint_path, model=None, optimizer=None, lr_scheduler=None, tasks=None, load_best_model=False):
 	if os.path.isdir(checkpoint_path):
 		checkpoint_files = sorted(glob(os.path.join(checkpoint_path, "*.tar")))
 		if len(checkpoint_files) == 0:
@@ -59,6 +59,9 @@ def load_model(checkpoint_path, model=None, optimizer=None, lr_scheduler=None, l
 		optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 	if lr_scheduler is not None:
 		lr_scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+	if tasks is not None:
+		for t in tasks:
+			t.load_from_dict(checkpoint)
 	add_param_dict = dict()
 	for key, val in checkpoint.items():
 		if "state_dict" not in key:
@@ -67,12 +70,13 @@ def load_model(checkpoint_path, model=None, optimizer=None, lr_scheduler=None, l
 
 
 def load_model_from_args(args, checkpoint_path=None, load_best_model=False):
-	model_type, model_params, optimizer_params = args_to_params(args)
+	tasks, model_type, model_params, optimizer_params, multitask_params = args_to_params(args)
 	_, _, wordvec_tensor = load_word2vec_from_file()
 	model = MultiTaskEncoder(model_type, model_params, wordvec_tensor)
+	tasks = [create_task(model, t, model_params, debug=True) for t in tasks]
 	if checkpoint_path is not None:
-		load_model(checkpoint_path, model=model, load_best_model=load_best_model)
-	return model
+		load_model(checkpoint_path, model=model, tasks=tasks, load_best_model=load_best_model)
+	return model, tasks
 
 
 def load_args(checkpoint_path):

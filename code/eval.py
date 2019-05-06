@@ -9,7 +9,8 @@ import pickle
 import numpy as np
 from glob import glob
 
-from model import NLIModel
+from task import create_task, TaskTemplate, MultiTaskSampler, SNLITask, SSTTask, VUATask
+from model import MultiTaskEncoder
 from data import DatasetHandler, debug_level
 from mutils import load_model, load_model_from_args, load_args, args_to_params, visualize_tSNE, get_transfer_datasets
 
@@ -19,59 +20,65 @@ from sent_eval import perform_SentEval
 
 
 
-class SNLIEval:
+class MultiTaskEval:
 
-	def __init__(self, model, batch_size=64):
-		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SNLI_datasets(debug_dataset = False)
-		self.test_hard_dataset, self.test_easy_dataset = DatasetHandler.load_SNLI_splitted_test()
+	def __init__(self, model, tasks, batch_size=64):
 		self.model = model
+		self.tasks = tasks
 		self.batch_size = batch_size
 		self.accuracies = dict()
 
-	def eval(self, iteration=None, dataset=None, ret_pred_list=False):
-		if dataset is None:
-			dataset = self.val_dataset
-		self.model.eval()
-		number_batches = int(math.ceil(dataset.get_num_examples() * 1.0 / self.batch_size))
-		correct_preds = []
-		preds_list = []
-		for batch_ind in range(number_batches):
-			if debug_level() == 0:
-				print("Evaluation process: %4.2f%%" % (100.0 * batch_ind / number_batches), end="\r")
-			embeds, lengths, batch_labels = dataset.get_batch(self.batch_size, loop_dataset=False, toTorch=True, bidirectional=self.model.is_bidirectional())
-			preds = self.model(words_s1 = embeds[0], lengths_s1 = lengths[0], words_s2 = embeds[1], lengths_s2 = lengths[1], applySoftmax=True)
-			_, pred_labels = torch.max(preds, dim=-1)
-			preds_list += torch.squeeze(pred_labels).tolist()
-			correct_preds += torch.squeeze(pred_labels == batch_labels).tolist()
-		accuracy = sum(correct_preds) * 1.0 / len(correct_preds)
-		print("Evaluation accuracy: %4.2f%%" % (accuracy * 100.0))
-		print("Number of predictions: " + ", ".join([("class %i: %i" % (i, sum([j==i for j in preds_list]))) for i in range(3)]))
-		if iteration is not None:
-			self.accuracies[iteration] = accuracy
-		if not ret_pred_list:
-			return accuracy
-		else:
-			return accuracy, preds_list
+
+	def dump_errors(self, checkpoint_path, output_file="mistakes.txt"):
+		evaluation_dict = load_model(checkpoint_path)["evaluation_dict"]
+		SNLI_evaluation = evaluation_dict[max(evaluation_dict.keys())][SNLITask.NAME]
+		predictions = SNLI_evaluation["predictions"]
+		labels = SNLI_evaluation["labels"]
+		_, test_dataset, _ = DatasetHandler.load_SNLI_datasets()
+		mistakes = [i for i, p, l in zip(range(len(predictions)), predictions.tolist(), labels.tolist()) if p != l]
+		print("Number of mistakes: " + str(len(mistakes)) + " | " + str(len(test_dataset.data_list)) + " (%4.2f%%)" % (len(mistakes)*100.0/len(test_dataset.data_list)))
+		print("Confusions:")
+		for l in set(labels):
+			for p in set(predictions):
+				if l == p:
+					continue
+				print("\t- Label %s, pred %s: %i" % (test_dataset.label_to_string(l), test_dataset.label_to_string(p), len([m for m in mistakes if predictions[m]==p and labels[m]==l])))
+		file_text = ""
+		for example_index in mistakes:
+			file_text += "-"*50 + "\n"
+			file_text += "Label: " + str(test_dataset.label_to_string(labels[example_index])) + ", Prediction: " + str(test_dataset.label_to_string(predictions[example_index])) + "\n"
+			file_text += "Premise: " + " ".join(test_dataset.data_list[example_index].premise_words) + "\n"
+			file_text += "Hypothesis: " + " ".join(test_dataset.data_list[example_index].hypothesis_words) + "\n"
+		with open(output_file, "w") as f:
+			f.write(file_text)
+
+
 
 	def test_best_model(self, checkpoint_path, delete_others=False, run_standard_eval=True, run_training_set=False, run_sent_eval=True, run_extra_eval=True, light_senteval=True):
 		final_dict = load_model(checkpoint_path)
+		best_acc, best_iter = -1, -1
+		for eval_iter, eval_dict in final_dict["evaluation_dict"].items():
+			if eval_dict[SNLITask.NAME]["accuracy"] > best_acc:
+				best_iter = eval_iter
+				best_acc = eval_dict[SNLITask.NAME]["accuracy"]
+
 		max_acc = max(final_dict["eval_accuracies"])
 		best_epoch = final_dict["eval_accuracies"].index(max_acc) + 1
 		s = "Best epoch: " + str(best_epoch) + " with accuracy %4.2f%%" % (max_acc * 100.0) + "\n"
 		print(s)
 
 		best_checkpoint_path = os.path.join(checkpoint_path, "checkpoint_" + str(best_epoch).zfill(3) + ".tar")
-		load_model(best_checkpoint_path, model=self.model)
+		load_model(best_checkpoint_path, model=self.model, tasks=self.tasks)
 		for param in self.model.parameters():
 			param.requires_grad = False
 
 		if run_standard_eval:
 			if run_training_set:
 				# For training, we evaluate on the very last checkpoint as we expect to have the best training performance there
-				load_model(checkpoint_path, model=self.model)
+				load_model(checkpoint_path, model=self.model, tasks=self.tasks)
 				train_acc = self.eval(dataset=self.train_dataset)
 				# Load best checkpoint again
-				load_model(best_checkpoint_path, model=self.model)
+				load_model(best_checkpoint_path, model=self.model, tasks=self.tasks)
 			val_acc = self.eval(dataset=self.val_dataset)
 			test_acc, pred_list = self.eval(dataset=self.test_dataset, ret_pred_list=True)
 			if abs(val_acc - max_acc) > 0.0005:
@@ -106,7 +113,7 @@ class SNLIEval:
 		model_results = dict()
 
 		for i in range(len(checkpoint_files)):
-			checkpoint_dict = load_model(checkpoint_files[i], model=self.model)
+			checkpoint_dict = load_model(checkpoint_files[i], model=self.model, tasks=self.tasks)
 			epoch = checkpoint_dict["epoch"]
 			model_results[epoch] = dict()
 			model_results[epoch]["checkpoint_file"] = checkpoint_files[i]
@@ -188,17 +195,18 @@ if __name__ == '__main__':
 	transfer_datasets = get_transfer_datasets()
 
 	for model_checkpoint in model_list:
-		if not os.path.isfile(os.path.join(model_checkpoint, "results.txt")):
-			print("Skipped " + str(model_checkpoint) + " because of missing results file." )
-			continue
+		# if not os.path.isfile(os.path.join(model_checkpoint, "results.txt")):
+		# 	print("Skipped " + str(model_checkpoint) + " because of missing results file." )
+		# 	continue
 		
 		skip_standard_eval = not args.overwrite and os.path.isfile(os.path.join(model_checkpoint, "evaluation.txt"))
 		skip_sent_eval = not args.overwrite and os.path.isfile(os.path.join(model_checkpoint, "sent_eval.pik"))
 		skip_extra_eval = (not args.overwrite and os.path.isfile(os.path.join(model_checkpoint, "extra_evaluation.txt")))
 
 		try:
-			model = load_model_from_args(load_args(model_checkpoint))
-			evaluater = SNLIEval(model)
+			model, tasks = load_model_from_args(load_args(model_checkpoint))
+			evaluater = MultiTaskEval(model, tasks)
+			evaluater.dump_errors(args.checkpoint_path)
 			evaluater.test_best_model(model_checkpoint, 
 									  run_standard_eval=(not skip_standard_eval), 
 									  run_training_set=True,

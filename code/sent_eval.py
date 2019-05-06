@@ -7,8 +7,8 @@ import sys
 import logging
 from glob import glob
 
-from model import NLIModel
-from data import load_SNLI_datasets, debug_level, NLIData, SNLIDataset
+from model import MultiTaskEncoder
+from data import DatasetTemplate, DatasetHandler, debug_level, NLIData, SNLIDataset
 from mutils import load_model, load_model_from_args, load_args, args_to_params
 
 # Sent initials for SentEval
@@ -25,8 +25,8 @@ else:
 	print("[!] WARNING: Could not find senteval!")
 
 def create_model(checkpoint_path, model_type, model_params):
-	_, _, _, word2vec, word2id, wordvec_tensor = load_SNLI_datasets(debug_dataset = True)
-	model = NLIModel(model_type, model_params, wordvec_tensor)
+	word2vec, word2id, wordvec_tensor = load_word2vec_from_file()
+	model = MultiTaskEncoder(model_type, model_params, wordvec_tensor)
 	_ = load_model(checkpoint_path, model=model)
 	for param in model.parameters():
 		param.requires_grad = False
@@ -37,7 +37,7 @@ def create_model(checkpoint_path, model_type, model_params):
 UNKNOWN_WORDS = dict()
 def prepare(params, samples):
 	global UNKNOWN_WORDS
-	_, _, _, _, word2id, _ = load_SNLI_datasets(debug_dataset = True)
+	_, word2id, _ = load_word2vec_from_file()
 	params.word2id = word2id
 	# for s in samples:
 	# 	print(s)

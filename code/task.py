@@ -13,6 +13,7 @@ from data import DatasetTemplate, DatasetHandler, debug_level
 from vocab import get_id2word_dict
 
 
+
 def create_task(model, task, model_params, debug=False):
 	if task == SNLITask.NAME:
 		return SNLITask(model, model_params, load_data=True, debug=debug)
@@ -170,6 +171,7 @@ class MultiTaskSampler:
 
 		# For keeping track of 
 		self.loss_counters = np.zeros((len(self.tasks) + 1, 3), dtype=np.float32)
+		self.highest_eval_accs = {t.name: -1 for t in self.tasks}
 
 
 	def _get_next_batch_index(self):
@@ -209,11 +211,15 @@ class MultiTaskSampler:
 	def evaluate_all(self):
 		print("Evaluation...")
 		accuracy_dict = dict()
+		reached_new_opt = False
 		for t in self.tasks:
 			acc, detailed_acc = t.eval()
 			print("Task " + t.name + ": %4.2f%%" % (acc*100.0))
+			if acc > self.highest_eval_accs[t.name]:
+				self.highest_eval_accs[t.name] = acc
+				print("Highest accuracy so far for task " + t.name)
 			accuracy_dict[t.name] = detailed_acc
-		return accuracy_dict
+		return accuracy_dict, reached_new_opt
 
 
 	def _add_loss_to_record(self, task_index, loss, weight, acc=None):
@@ -270,6 +276,7 @@ class SNLITask(TaskTemplate):
 
 	def _load_datasets(self):
 		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SNLI_datasets(debug_dataset=self.debug)
+		# self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_MultiNLI_datasets(debug_dataset=self.debug)
 
 
 	def train_step(self, batch_size, loop_dataset=True):
