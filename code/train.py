@@ -181,7 +181,7 @@ class MultiTaskTrain:
 		checkpoint_file = os.path.join(self.checkpoint_path, 'checkpoint_' + str(iteration).zfill(7) + ".tar")
 		model_dict = self.model.state_dict()
 		if not save_embeddings:
-			model_dict = {k:v for k,v in model_dict.items() if (not k.startswith("embeddings") or k.requires_grad)}
+			model_dict = {k:v for k,v in model_dict.items() if (not k.startswith("embeddings") or v.requires_grad)}
 		checkpoint_dict = {
 			'model_state_dict': model_dict,
 			'optimizer_state_dict': self.optimizer.state_dict(),
