@@ -20,7 +20,7 @@ from shutil import copyfile
 from model import MultiTaskEncoder
 from data import DatasetHandler, debug_level, set_debug_level, DatasetTemplate, SentData
 from vocab import load_word2vec_from_file
-from task import create_task, SNLITask, SSTTask, VUATask, VUASeqTask
+from task import create_task, SNLITask, MNLITask, SSTTask, VUATask, VUASeqTask
 
 PARAM_CONFIG_FILE = "param_config.pik"
 
@@ -136,6 +136,9 @@ def args_to_params(args):
 	if args.task_SNLI > 0:
 		task_freq_dict[SNLITask.NAME] = args.task_SNLI
 		add_head(SNLITask.NAME, args.task_SNLI_head)
+	if args.task_MNLI > 0:
+		task_freq_dict[MNLITask.NAME] = args.task_MNLI
+		add_head(MNLITask.NAME, args.task_MNLI_head)
 	if args.task_SST > 0:
 		task_freq_dict[SSTTask.NAME] = args.task_SST
 		add_head(SSTTask.NAME, args.task_SST_head)

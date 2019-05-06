@@ -20,6 +20,8 @@ from vocab import get_id2word_dict
 def create_task(model, task, model_params, debug=False):
 	if task == SNLITask.NAME:
 		return SNLITask(model, model_params, load_data=True, debug=debug)
+	if task == MNLITask.NAME:
+		return MNLITask(model, model_params, load_data=True, debug=debug)
 	elif task == SSTTask.NAME:
 		return SSTTask(model, model_params, load_data=True, debug=debug)
 	elif task == VUATask.NAME:
@@ -28,6 +30,7 @@ def create_task(model, task, model_params, debug=False):
 		return VUASeqTask(model, model_params, load_data=True, debug=debug)
 	else:
 		print("[!] ERROR: Unknown task " + str(task))
+		print("If the task exists but could not be found, add it in the function 'create_task' in the file 'task.py'.")
 		sys.exit(1)
 
 
@@ -257,15 +260,13 @@ class MultiTaskSampler:
 ## TASK SPECIFIC TASKS ##
 #########################
 
-class SNLITask(TaskTemplate):
-
-	NAME = "Stanford_NLI"
+class NLITask(TaskTemplate):
 
 	CLASSIFIER_INFERSENT = 0
 	CLASSIFIER_ESIM = 1
 
-	def __init__(self, model, model_params, load_data=True, debug=False):
-		super(SNLITask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=SNLITask.NAME)
+	def __init__(self, model, model_params, load_data=True, debug=False, name=None):
+		super(NLITask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=name)
 		self.classifier = self._create_classifier()
 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
 		if torch.cuda.is_available():
@@ -275,19 +276,14 @@ class SNLITask(TaskTemplate):
 
 
 	def _create_classifier(self):
-		if "model" not in self.classifier_params or self.classifier_params["model"] == SNLITask.CLASSIFIER_INFERSENT:
+		if "model" not in self.classifier_params or self.classifier_params["model"] == NLITask.CLASSIFIER_INFERSENT:
 			return NLIClassifier(self.classifier_params)
-		elif self.classifier_params["model"] == SNLITask.CLASSIFIER_ESIM:
+		elif self.classifier_params["model"] == NLITask.CLASSIFIER_ESIM:
 			return ESIM_Head(self.classifier_params)
 		else:
 			print("[!] ERROR: Unknown classifier for SNLI Task: " + str(self.classifier_params["model"]) + \
-				  "Supported options are: [" + ",".join([str(o) for o in [SNLITask.CLASSIFIER_INFERSENT, SNLITask.CLASSIFIER_ESIM]]) + "]")
+				  "Supported options are: [" + ",".join([str(o) for o in [NLITask.CLASSIFIER_INFERSENT, NLITask.CLASSIFIER_ESIM]]) + "]")
 			sys.exit(1)
-
-
-	def _load_datasets(self):
-		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SNLI_datasets(debug_dataset=self.debug)
-		# self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_MultiNLI_datasets(debug_dataset=self.debug)
 
 
 	def train_step(self, batch_size, loop_dataset=True):
@@ -361,7 +357,30 @@ class SNLITask(TaskTemplate):
 					# print("Hypothesis %i: %s" % (i, " ".join([id2word[x] for x in batch_hyp[i]])))
 					writer.add_figure(tag="train/sample_attention_maps_%i_%s"%(i, main_w), figure=fig, global_step=iteration)
 
-			
+
+class SNLITask(NLITask):
+
+	NAME = "Stanford_NLI"
+
+	def __init__(self, model, model_params, load_data=True, debug=False):
+		super(SNLITask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=SNLITask.NAME)
+
+
+	def _load_datasets(self):
+		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SNLI_datasets(debug_dataset=self.debug)
+
+
+class MNLITask(NLITask):
+
+	NAME = "MultiNLI"
+
+	def __init__(self, model, model_params, load_data=True, debug=False):
+		super(MNLITask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=MNLITask.NAME)
+
+	def _load_datasets(self):
+		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_MultiNLI_datasets(debug_dataset=self.debug)
+
+
 
 class SSTTask(TaskTemplate):
 
