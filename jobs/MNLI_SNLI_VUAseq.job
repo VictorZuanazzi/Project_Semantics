@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=Semantics_Template
+#SBATCH --job-name=MNLI_SNLI_VUAseq
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
 #SBATCH --ntasks-per-node=1
@@ -20,7 +20,7 @@ export LD_LIBRARY_PATH=/hpc/eb/Debian9/cuDNN/7.1-CUDA-8.0.44-GCCcore-5.4.0/lib64
 
 EXPDIR=$TMPDIR
 # CHANGE CHECKPOINT DIRECTORY TO TASK NAME!
-CHECKPOINT_PATH=$EXPDIR/code/checkpoints/template
+CHECKPOINT_PATH=$EXPDIR/code/checkpoints/MNLI_SNLI_VUAseq
 # Create new empty directories for copying
 mkdir -p $EXPDIR
 mkdir -p $EXPDIR/code
@@ -34,7 +34,9 @@ cd $EXPDIR/code
 srun python3 -u train.py --cluster \
 						 --model 3 \
 						 --embed_dim 600 \
-						 --task_SNLI 0.9 \
+						 --task_MNLI 0.45 \
+						 --task_MNLI_head model=1,fc_dropout=0.5,use_bias \
+						 --task_SNLI 0.45 \
 						 --task_SNLI_head model=1,fc_dropout=0.5,use_bias \
 						 --task_VUAseq 0.1 \
 						 --task_VUAseq_head fc_dropout=0.5,fc_dim=128,fc_nonlinear,fc_num_layers=1 \
@@ -42,9 +44,9 @@ srun python3 -u train.py --cluster \
 						 --optimizer 1 \
 						 --learning_rate 0.0004 \
 						 --weight_decay 0.0 \
-						 --lr_decay_step 100000 \
+						 --lr_decay_step 150000 \
 						 --lr_decay 0.2 \
-						 --max_iterations 150000 \
+						 --max_iterations 200000 \
 						 --seed 42 \
 						 --tensorboard \
 						 --restart \
