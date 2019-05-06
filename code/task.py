@@ -6,6 +6,9 @@ import math
 from random import shuffle
 import os
 import sys
+# Disable matplotlib screen support
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 from model import SimpleClassifier, NLIClassifier, ESIM_Head
