@@ -355,7 +355,8 @@ class NLITask(TaskTemplate):
 					# print("Attention map %i shape: " % (i) + str(attention_map[i,:batch_prem[i].shape[0],:batch_hyp[i].shape[0]].shape))
 					# print("Premise %i: %s" % (i, " ".join([id2word[x] for x in batch_prem[i]])))
 					# print("Hypothesis %i: %s" % (i, " ".join([id2word[x] for x in batch_hyp[i]])))
-					writer.add_figure(tag="train/sample_attention_maps_%i_%s"%(i, main_w), figure=fig, global_step=iteration)
+					writer.add_figure(tag="train_" + self.name + "/sample_attention_maps_%i_%s"%(i, main_w), figure=fig, global_step=iteration)
+			plt.close()
 
 
 class SNLITask(NLITask):

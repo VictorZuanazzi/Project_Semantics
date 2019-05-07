@@ -90,12 +90,15 @@ class MultiTaskTrain:
 			writer = None
 
 		# Function for saving model. Add here in the dictionary necessary parameters that should be saved
-		def save_train_model(iteration):
+		def save_train_model(iteration, only_weights=False):
 			checkpoint_dict = {
 				"evaluation_dict": evaluation_dict,
 				"iteration": iteration
 			}
-			self.save_model(iteration, checkpoint_dict)
+			if only_weights:
+				self.save_model(iteration, checkpoint_dict, save_optimizer=False)
+			else:
+				self.save_model(iteration, checkpoint_dict)
 
 		def export_weight_parameters(iteration):
 			# Export weight distributions
@@ -170,23 +173,24 @@ class MultiTaskTrain:
 			for eval_iter, eval_dict in evaluation_dict.items():
 				f.write("Iteration %i: " % (eval_iter))
 				for task_name, task_eval_dict in eval_dict.items():
-					f.write("%s=%4.2f%%, " % (task_name, task_eval_dict["accuracy"]))
+					f.write("%s=%4.2f%%, " % (task_name, task_eval_dict["accuracy"]*100.0))
 				f.write("\n")
 
 		if writer is not None:
 			writer.close()
 
 
-	def save_model(self, iteration, add_param_dict, save_embeddings=False):
+	def save_model(self, iteration, add_param_dict, save_embeddings=False, save_optimizer=True):
 		checkpoint_file = os.path.join(self.checkpoint_path, 'checkpoint_' + str(iteration).zfill(7) + ".tar")
 		model_dict = self.model.state_dict()
 		if not save_embeddings:
 			model_dict = {k:v for k,v in model_dict.items() if (not k.startswith("embeddings") or v.requires_grad)}
 		checkpoint_dict = {
-			'model_state_dict': model_dict,
-			'optimizer_state_dict': self.optimizer.state_dict(),
-			'scheduler_state_dict': self.lr_scheduler.state_dict()
+			'model_state_dict': model_dict
 		}
+		if save_optimizer:
+			checkpoint_dict['optimizer_state_dict'] = self.optimizer.state_dict()
+			checkpoint_dict['scheduler_state_dict'] = self.lr_scheduler.state_dict()
 		checkpoint_dict.update(add_param_dict)
 		for t in self.tasks:
 			checkpoint_dict.update(t.dict_to_save())
