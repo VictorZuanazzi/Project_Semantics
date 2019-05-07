@@ -26,13 +26,15 @@ class NLIModel(nn.Module):
         self.model_params = model_params
         self._choose_encoder(model_type, model_params)
         self.classifier = NLIClassifier(model_params)
-        self.elmo = self.load_elmo(elmo_type)
+        self.elmo_first_layer = self.load_elmo(elmo_type, [0, 1, 0])
+        self.elmo_second_layer = self.load_elmo(elmo_type, [0, 0, 1])
 
         if torch.cuda.is_available():
             self.embeddings = self.embeddings.cuda()
             self.encoder = self.encoder.cuda()
             self.classifier = self.classifier.cuda()
-            self.elmo = self.elmo.cuda()
+            self.elmo_first_layer = self.elmo_first_layer.cuda()
+            self.elmo_second_layer = self.elmo_second_layer.cuda()
 
     def _choose_encoder(self, model_type, model_params):
         if model_type == NLIModel.AVERAGE_WORD_VECS:
@@ -60,7 +62,7 @@ class NLIModel(nn.Module):
         out = self.classifier(embed_s1, embed_s2, applySoftmax=applySoftmax)
         return out
 
-    def load_elmo(self, elmo_type):
+    def load_elmo(self, elmo_type, mix_parameters):
         if elmo_type not in ['small', 'medium', 'original']:
             print("[!] WARNING: Unsupported ELMo size. Reverting to medium size")
             elmo_type = 'medium'
@@ -73,7 +75,7 @@ class NLIModel(nn.Module):
         elif elmo_type == 'original':
             options_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json'
             weight_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_weights.hdf5'
-        return Elmo(options_file, weight_file, 2, dropout=0)
+        return Elmo(options_file, weight_file, 2, scalar_mix_parameters=mix_parameters, dropout=0)
 
     def encode_sentence(self, words, lengths, dummy_input=False, debug=False):
         # Words is a tensor of size (batch_len, sentence_len)
@@ -96,10 +98,11 @@ class NLIModel(nn.Module):
         # Get ELMo embeddings
         character_ids = batch_to_ids(str_words)
         if torch.cuda.is_available():
-            character_ids = character_ids.to('cuda:0')
-        elmo_embeds = self.elmo(character_ids)
-        elmo_embeds = torch.cat((elmo_embeds['elmo_representations'][0],
-                                 elmo_embeds['elmo_representations'][1]), 2)
+            character_ids = character_ids.cuda()
+        elmo_embeds_first_layer = self.elmo_first_layer(character_ids)
+        elmo_embeds_second_layer = self.elmo_second_layer(character_ids)
+        elmo_embeds = torch.cat((elmo_embeds_first_layer['elmo_representations'][0],
+                                 elmo_embeds_second_layer['elmo_representations'][0]), 2)
 
         # Combine the two embeddings
         full_embeds = torch.cat((word_embeds, elmo_embeds), 2)
