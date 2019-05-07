@@ -13,7 +13,7 @@ class NLIModel(nn.Module):
     BILSTM = 2
     BILSTM_MAX = 3
 
-    def __init__(self, model_type, model_params, wordvec_tensor, id2word, elmo_type='medium'):
+    def __init__(self, model_type, model_params, wordvec_tensor, id2word, elmo_type='small'):
         super(NLIModel, self).__init__()
 
         self.id2word = id2word
