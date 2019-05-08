@@ -5,8 +5,8 @@ import sys
 import math
 
 # TODO: see which performs better
-from allennlp.modules.elmo import Elmo, batch_to_ids
-# from allennlp.commands.elmo import ElmoEmbedder
+# from allennlp.modules.elmo import Elmo, batch_to_ids
+from allennlp.commands.elmo import ElmoEmbedder
 
 
 class NLIModel(nn.Module):
@@ -34,7 +34,7 @@ class NLIModel(nn.Module):
             self.embeddings = self.embeddings.cuda()
             self.encoder = self.encoder.cuda()
             self.classifier = self.classifier.cuda()
-            self.elmo = self.elmo.cuda()
+            # self.elmo = self.elmo.cuda()
 
     def _choose_encoder(self, model_type, model_params):
         if model_type == NLIModel.AVERAGE_WORD_VECS:
@@ -51,10 +51,10 @@ class NLIModel(nn.Module):
 
     def forward(self, words_s1, lengths_s1=None, words_s2=None, lengths_s2=None, dummy_input=False, applySoftmax=False, eval=False):
 
-        if eval:
-            self.elmo.eval()
-        else:
-            self.elmo.train()
+        # if eval:
+        #     self.elmo.eval()
+        # else:
+        #     self.elmo.train()
 
         # If only one element is given, we assume that the first one must be a tuple of all inputs
         # Required for e.g. graph creation in tensorboard
@@ -81,8 +81,11 @@ class NLIModel(nn.Module):
         elif elmo_type == 'original':
             options_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json'
             weight_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_weights.hdf5'
-        return Elmo(options_file, weight_file, 1)
-        # return ElmoEmbedder(options_file, weight_file)
+        if torch.cuda.is_available():
+            print("=" * 50 + "\nLoaded CUDA ElmoEmbedder\n" + "=" * 50)
+            return ElmoEmbedder(options_file, weight_file, cuda_device=torch.cuda.current_device())
+        return ElmoEmbedder(options_file, weight_file)
+        # return Elmo(options_file, weight_file, 1)
 
     def encode_sentence(self, words, lengths, dummy_input=False, debug=False):
         # Words is a tensor of size (batch_len, sentence_len)
@@ -104,15 +107,13 @@ class NLIModel(nn.Module):
 
         # TODO: chose which one works better
         # Get ELMo embeddings
-        character_ids = batch_to_ids(str_words)
-        if torch.cuda.is_available():
-            character_ids = character_ids.cuda()
-        elmo_embeds = self.elmo(character_ids)['elmo_representations'][0]
-
-        # vectors = self.elmo.batch_to_embeddings(str_words)[0]
+        # character_ids = batch_to_ids(str_words)
         # if torch.cuda.is_available():
-        #     vectors = vectors.cuda()
-        # elmo_embeds = torch.cat((vectors[:, 1], vectors[:, 2]), 2)
+        #     character_ids = character_ids.cuda()
+        # elmo_embeds = self.elmo(character_ids)['elmo_representations'][0]
+
+        vectors = self.elmo.batch_to_embeddings(str_words)[0]
+        elmo_embeds = torch.cat((vectors[:, 1], vectors[:, 2]), 2)
 
         # Combine the two embeddings
         full_embeds = torch.cat((word_embeds, elmo_embeds), 2)
