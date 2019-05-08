@@ -21,6 +21,7 @@ start = time()
 
 character_ids = batch_to_ids(sentences)
 
+elmo.eval()
 embeddings = elmo(character_ids)
 
 elmo_embeds = embeddings['elmo_representations'][0]
@@ -28,3 +29,4 @@ elmo_embeds = embeddings['elmo_representations'][0]
 print("Elapsed:", round(time() - start, 6), "s")
 
 print(elmo_embeds.shape)
+print(elmo_embeds[0, 1, 0:10])

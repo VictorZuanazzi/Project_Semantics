@@ -39,7 +39,7 @@ class SNLIEval:
 			if debug_level() == 0:
 				print("Evaluation process: %4.2f%%" % (100.0 * batch_ind / number_batches), end="\r")
 			embeds, lengths, batch_labels = dataset.get_batch(self.batch_size, loop_dataset=False, toTorch=True, bidirectional=self.model.is_bidirectional())
-			preds = self.model(words_s1 = embeds[0], lengths_s1 = lengths[0], words_s2 = embeds[1], lengths_s2 = lengths[1], applySoftmax=True)
+			preds = self.model(words_s1 = embeds[0], lengths_s1 = lengths[0], words_s2 = embeds[1], lengths_s2 = lengths[1], applySoftmax=True, eval=True)
 			_, pred_labels = torch.max(preds, dim=-1)
 			preds_list += torch.squeeze(pred_labels).tolist()
 			correct_preds += torch.squeeze(pred_labels == batch_labels).tolist()
