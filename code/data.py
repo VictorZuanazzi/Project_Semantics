@@ -38,7 +38,7 @@ class DatasetHandler:
 
 
 	@staticmethod
-	def _load_all_type_datasets(dataset_fun, debug_dataset=False, data_types=None, data_path=None):
+	def _load_all_type_datasets(dataset_fun, debug_dataset=False, data_types=None, data_path=None, name=None):
 		_, word2id_dict, _ = load_word2vec_from_file()
 		dataset_list = list()
 		if data_types is None:
@@ -47,7 +47,7 @@ class DatasetHandler:
 			if data_path is None:
 				dataset = dataset_fun(data_type, shuffle_data=('train' in data_type))
 			else:
-				dataset = dataset_fun(data_type, data_path=data_path, shuffle_data=('train' in data_type))
+				dataset = dataset_fun(data_type, data_path=data_path, shuffle_data=('train' in data_type), name=name)
 			dataset.set_vocabulary(word2id_dict)
 			dataset.print_statistics()
 			dataset_list.append(dataset)
@@ -68,7 +68,7 @@ class DatasetHandler:
 	@staticmethod
 	def load_MultiNLI_datasets(debug_dataset=False):
 		if DatasetHandler.MNLI_DATASETS is None:
-			DatasetHandler.MNLI_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, data_path="../data/multinli_1.0", data_types=['train', 'dev.matched', 'dev.mismatched'], debug_dataset=debug_dataset)
+			DatasetHandler.MNLI_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, data_path="../data/multinli_1.0", data_types=['train', 'dev.matched', 'dev.mismatched'], debug_dataset=debug_dataset, name="MultiNLI")
 		return DatasetHandler.MNLI_DATASETS[0], DatasetHandler.MNLI_DATASETS[1], DatasetHandler.MNLI_DATASETS[2]
 
 	@staticmethod
@@ -255,8 +255,8 @@ class DatasetTemplate:
 class SNLIDataset(DatasetTemplate):
 
 	# Data type either train, dev or test
-	def __init__(self, data_type, data_path="../data/snli_1.0", add_suffix=True, shuffle_data=True):
-		super(SNLIDataset, self).__init__(data_type, shuffle_data, name="SNLI")
+	def __init__(self, data_type, data_path="../data/snli_1.0", add_suffix=True, shuffle_data=True, name="SNLI"):
+		super(SNLIDataset, self).__init__(data_type, shuffle_data, name=name)
 		if data_path is not None:
 			self.load_data(data_path, data_type)
 		else:

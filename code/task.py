@@ -12,7 +12,7 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 from model import SimpleClassifier, NLIClassifier, ESIM_Head
-from data import DatasetTemplate, DatasetHandler, debug_level
+from data import DatasetTemplate, DatasetHandler, debug_level, VUAData
 from vocab import get_id2word_dict
 
 
@@ -111,7 +111,7 @@ class TaskTemplate:
 			recall = TP * 1.0 / max(1e-5, TP + FN) 
 			precision = TP * 1.0 / max(1e-5, TP + FP)
 			F1_score = 2.0 * TP / max(1e-5, 2 * TP + FP + FN)
-			print("\t- Class %s: Recall=%4.2f%%, Precision=%4.2f%%, F1 score=%4.2f%%" % (dataset.label_to_string(c), recall, precision, F1_score))
+			print("\t- Class %s: Recall=%4.2f%%, Precision=%4.2f%%, F1 score=%4.2f%%" % (dataset.label_to_string(c), recall*100.0, precision*100.0, F1_score*100.0))
 			detailed_acc["class_scores"][dataset.label_to_string(c)] = {"recall": recall, "precision": precision, "f1": F1_score}
 		print("-"*75)
 
@@ -146,6 +146,10 @@ class TaskTemplate:
 		print("="*75 + "\n" + self.name + " classifier:\n"+"-"*75)
 		print(self.classifier)
 		print("="*75)
+
+
+	def eval_metric(self, eval_dict):
+		return eval_dict["accuracy"]
 
 
 	@staticmethod
@@ -481,6 +485,9 @@ class VUATask(TaskTemplate):
 		out = self.classifier(metaphor_embeds, applySoftmax=False)
 		return out
 
+	def eval_metric(self, eval_dict):
+		return eval_dict["class_scores"][self.train_dataset.label_to_string(VUAData.LABEL_LIST["metaphor"])]["f1"]
+
 
 class VUASeqTask(TaskTemplate):
 
@@ -529,6 +536,11 @@ class VUASeqTask(TaskTemplate):
 		word_embeds = word_embeds.view(-1, word_embeds.shape[2])
 		out = self.classifier(word_embeds, applySoftmax=False)
 		return out
+
+	def eval_metric(self, eval_dict):
+		return eval_dict["class_scores"][self.train_dataset.label_to_string(VUAData.LABEL_LIST["metaphor"])]["f1"]
+
+
 
 # class POSTask(TaskTemplate):
 

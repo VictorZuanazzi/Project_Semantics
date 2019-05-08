@@ -158,7 +158,7 @@ class MultiTaskTrain:
 						for t in self.tasks:
 							t.add_to_summary(writer, index_iter+1)
 
-					if reached_new_opt:
+					if index_iter > 10 * eval_freq and reached_new_opt:
 						save_train_model(index_iter+1)
 
 				# Saving

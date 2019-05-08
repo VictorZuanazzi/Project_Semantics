@@ -404,9 +404,14 @@ def sent_eval_to_table():
 	print(s)
 
 def sent_eval_to_latex():
-	result_folder = sorted(glob("results/*"))
-	with open(os.path.join(result_folder[0], "sent_eval.pik"), "rb") as f:
-		sample_dict = pickle.load(f)
+	result_folder = sorted(glob("checkpoints/*"))
+	for sample_folder in result_folder:
+		if not os.path.isfile(os.path.join(sample_folder, "sent_eval.pik")):
+			continue
+		else:
+			with open(os.path.join(sample_folder, "sent_eval.pik"), "rb") as f:
+				sample_dict = pickle.load(f)
+			break
 	task_list = list(sample_dict.keys())
 	if "ImageCaptionRetrieval" in task_list:
 		task_list.remove("ImageCaptionRetrieval")
@@ -414,11 +419,13 @@ def sent_eval_to_latex():
 	s = " & ".join("\\textbf{%s}" % (column_name) for column_name in ["Model"] + task_list + ["Micro", "Macro"]) + "\\\\\n\\hline\n"
 	
 	for res_dir in result_folder:
-		s += res_dir.split("/")[-1] + " & "
+		if not os.path.isfile(os.path.join(res_dir, "sent_eval.pik")):
+			continue
 		with open(os.path.join(res_dir, "sent_eval.pik"), "rb") as f:
 			sample_dict = pickle.load(f)
 		acc_list = list()
 		weights = list()
+		s += res_dir.split("/")[-1] + " & "
 		for task_key in task_list:
 			if "acc" in sample_dict[task_key]:
 				s +=  "%4.2f%%" % (sample_dict[task_key]["acc"]) + ("/%4.2f%%" % (sample_dict[task_key]["f1"]) if "f1" in sample_dict[task_key] else "")
@@ -534,13 +541,13 @@ if __name__ == '__main__':
 	# results_to_table()
 	# print("\n\n")
 	# sent_eval_to_table()
-	result_to_latex()
-	print("\n\n")
+	# result_to_latex()
+	# print("\n\n")
 	sent_eval_to_latex()
-	print("\n\n")
-	imagecap_to_latex()
-	print("\n\n")
-	extra_eval_to_latex()
+	# print("\n\n")
+	# imagecap_to_latex()
+	# print("\n\n")
+	# extra_eval_to_latex()
 
 	# test_for_significance("results/Baseline/", "results/BiLSTM_Max_Adam/")
 	# test_for_significance("results/LSTM_SGD/", "results/Baseline/")

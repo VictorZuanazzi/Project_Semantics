@@ -8,8 +8,9 @@ import logging
 from glob import glob
 
 from model import MultiTaskEncoder
-from data import DatasetTemplate, DatasetHandler, debug_level, NLIData, SNLIDataset
+from data import DatasetTemplate, DatasetHandler, debug_level, NLIData, SentData, SNLIDataset
 from mutils import load_model, load_model_from_args, load_args, args_to_params
+from vocab import load_word2vec_from_file
 
 # Sent initials for SentEval
 PATH_TO_SENTEVAL = "../../SentEval"
@@ -57,10 +58,10 @@ def batcher(params, batch):
 	data_batch = list()
 	for sent in batch:
 		str_sent = " ".join([w if isinstance(w, str) else w.decode('UTF-8') for w in sent])
-		new_d = NLIData(premise=str_sent, hypothesis='.', label=-1)
+		new_d = SentData(sentence=str_sent, label=-1)
 		new_d.translate_to_dict(params.word2id)
 		data_batch.append(new_d)
-	sents, lengths, _ = SNLIDataset.sents_to_Tensors([[d.premise_vocab for d in data_batch]], toTorch=True)
+	sents, lengths, _ = DatasetTemplate.sents_to_Tensors([[d.sent_vocab for d in data_batch]], toTorch=True)
 	
 	sent_embeddings = MODEL.encode_sentence(sents[0], lengths[0])
 	return sent_embeddings.cpu()
@@ -77,7 +78,7 @@ def perform_SentEval(model, fast_eval=False):
 	else:
 		params_senteval = {'task_path': PATH_TO_DATA, 'usepytorch': torch.cuda.is_available(), 'kfold': 5}
 		params_senteval['classifier'] = {'nhid': 0, 'optim': 'adam', 'batch_size': 64, 'tenacity': 5, 'epoch_size': 4}
-		transfer_tasks = ['MR', 'CR', 'SUBJ', 'MPQA', 'SST2', 'TREC', 'MRPC', 'SICKEntailment', 'SICKRelatedness', 'STS14', 'ImageCaptionRetrieval']
+		transfer_tasks = ['MR', 'CR', 'SUBJ', 'MPQA', 'SST2', 'TREC', 'MRPC', 'SICKEntailment', 'SICKRelatedness', 'STS14'] # , 'ImageCaptionRetrieval'
 		
 	# Set up logger
 	logging.basicConfig(format='%(asctime)s : %(message)s', level=logging.DEBUG)
@@ -102,10 +103,10 @@ if __name__ == "__main__":
 	parser.add_argument("--checkpoint_path", help="Folder(name) where checkpoints are saved", type=str, required=True)
 	parser.add_argument("--fast", help="Whether to use the fast evaluation setting or the full version", action="store_true")
 	args = parser.parse_args()
-	model = load_model_from_args(load_args(args.checkpoint_path), args.checkpoint_path)
+	model, _ = load_model_from_args(load_args(args.checkpoint_path), args.checkpoint_path)
 	for param in model.parameters():
 		param.requires_grad = False
-
+	model.eval()
 	perform_SentEval(model, args.fast)
 
 	with open("senteval_unknown_words.txt", "w") as f:
