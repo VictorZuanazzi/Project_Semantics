@@ -4,7 +4,9 @@ import numpy as np
 import sys
 import math
 
-from allennlp.modules.elmo import Elmo, batch_to_ids
+# TODO: see which performs better
+# from allennlp.modules.elmo import Elmo, batch_to_ids
+from allennlp.commands.elmo import ElmoEmbedder
 
 
 class NLIModel(nn.Module):
@@ -32,7 +34,7 @@ class NLIModel(nn.Module):
             self.embeddings = self.embeddings.cuda()
             self.encoder = self.encoder.cuda()
             self.classifier = self.classifier.cuda()
-            self.elmo = self.elmo.cuda()
+            # self.elmo = self.elmo.cuda()
 
     def _choose_encoder(self, model_type, model_params):
         if model_type == NLIModel.AVERAGE_WORD_VECS:
@@ -73,7 +75,8 @@ class NLIModel(nn.Module):
         elif elmo_type == 'original':
             options_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json'
             weight_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_weights.hdf5'
-        return Elmo(options_file, weight_file, 1)
+        return ElmoEmbedder(options_file, weight_file)
+        # return Elmo(options_file, weight_file, 1)
 
     def encode_sentence(self, words, lengths, dummy_input=False, debug=False):
         # Words is a tensor of size (batch_len, sentence_len)
@@ -93,11 +96,19 @@ class NLIModel(nn.Module):
         # Get word embeddings, which is a tensor of size (batch_len x sentence_len x word_embedding_len)
         word_embeds = self.embeddings(words)
 
+        # TODO: chose which one works better
         # Get ELMo embeddings
-        character_ids = batch_to_ids(str_words)
+        # character_ids = batch_to_ids(str_words)
+        # if torch.cuda.is_available():
+        #     character_ids = character_ids.cuda()
+        # elmo_embeds = self.elmo(character_ids)['elmo_representations'][0]
+
+        vectors = self.elmo.batch_to_embeddings(str_words)[0]
         if torch.cuda.is_available():
-            character_ids = character_ids.cuda()
-        elmo_embeds = self.elmo(character_ids)['elmo_representations'][0]
+            vectors = vectors.cuda()
+        elmo_embeds = torch.cat((vectors[:, 1], vectors[:, 2]), 2)
+
+        print(elmo_embeds.shape)
 
         # Combine the two embeddings
         full_embeds = torch.cat((word_embeds, elmo_embeds), 2)
