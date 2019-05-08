@@ -11,7 +11,7 @@ import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 
-from model import SimpleClassifier, NLIClassifier, ESIM_Head
+from model import SimpleClassifier, NLIClassifier, ESIM_Head, get_device
 from data import DatasetTemplate, DatasetHandler, debug_level, VUAData
 from vocab import get_id2word_dict
 
@@ -154,9 +154,7 @@ class TaskTemplate:
 
 	@staticmethod
 	def _create_CrossEntropyLoss(weight=None, ignore_index=-1):
-		loss_module = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
-		if torch.cuda.is_available():
-			loss_module = loss_module.cuda()
+		loss_module = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index).to(get_device())
 		return loss_module
 
 
@@ -273,9 +271,6 @@ class NLITask(TaskTemplate):
 		super(NLITask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=name)
 		self.classifier = self._create_classifier()
 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
-		if torch.cuda.is_available():
-			self.classifier = self.classifier.cuda()
-			self.loss_module = self.loss_module.cuda()
 		self.print_classifier()
 
 
@@ -313,8 +308,8 @@ class NLITask(TaskTemplate):
 
 
 	def _forward_model(self, embeds, lengths, applySoftmax=False):
-		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0], word_level=self.classifier.is_word_level())
-		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1], word_level=self.classifier.is_word_level())
+		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0], word_level=self.classifier.is_word_level(), layer=-1)
+		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1], word_level=self.classifier.is_word_level(), layer=-1)
 
 		if not self.classifier.is_word_level():
 			out = self.classifier(embed_s1, embed_s2, applySoftmax=applySoftmax)
@@ -395,9 +390,6 @@ class SSTTask(TaskTemplate):
 		super(SSTTask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=SSTTask.NAME)
 		self.classifier = SimpleClassifier(self.classifier_params, 2)
 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
-		if torch.cuda.is_available():
-			self.classifier = self.classifier.cuda()
-			self.loss_module = self.loss_module.cuda()
 		self.print_classifier()
 
 
@@ -410,7 +402,7 @@ class SSTTask(TaskTemplate):
 		
 		embeds, lengths, batch_labels = self.train_dataset.get_batch(batch_size, loop_dataset=loop_dataset, toTorch=True)
 		
-		sent_embeds = self.model.encode_sentence(embeds, lengths)
+		sent_embeds = self.model.encode_sentence(embeds, lengths, word_level=False, layer=-1)
 		out = self.classifier(sent_embeds, applySoftmax=False)
 
 		loss = self.loss_module(out, batch_labels)
@@ -424,7 +416,7 @@ class SSTTask(TaskTemplate):
 	def _eval_batch(self, batch):
 		embeds, lengths, batch_labels = batch
 		
-		sent_embeds = self.model.encode_sentence(embeds, lengths)
+		sent_embeds = self.model.encode_sentence(embeds, lengths, word_level=False, layer=-1)
 		preds = self.classifier(sent_embeds, applySoftmax=True)
 		
 		_, pred_labels = torch.max(preds, dim=-1)
@@ -441,9 +433,6 @@ class VUATask(TaskTemplate):
 		self.classifier_params["embed_sent_dim"] *= 2
 		self.classifier = SimpleClassifier(self.classifier_params, 2)
 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
-		if torch.cuda.is_available():
-			self.classifier = self.classifier.cuda()
-			self.loss_module = self.loss_module.cuda()
 		self.print_classifier()
 
 
@@ -497,9 +486,6 @@ class VUASeqTask(TaskTemplate):
 		super(VUASeqTask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=VUASeqTask.NAME)
 		self.classifier = SimpleClassifier(self.classifier_params, 2)
 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
-		if torch.cuda.is_available():
-			self.classifier = self.classifier.cuda()
-			self.loss_module = self.loss_module.cuda()
 		self.print_classifier()
 
 
@@ -532,7 +518,7 @@ class VUASeqTask(TaskTemplate):
 
 
 	def _forward_model(self, embeds, lengths, applySoftmax=False):
-		_, word_embeds = self.model.encode_sentence(embeds, lengths, word_level=True)
+		_, word_embeds = self.model.encode_sentence(embeds, lengths, word_level=True, layer=1)
 		word_embeds = word_embeds.view(-1, word_embeds.shape[2])
 		out = self.classifier(word_embeds, applySoftmax=False)
 		return out
@@ -550,9 +536,6 @@ class VUASeqTask(TaskTemplate):
 # 		super(SNLITask, self).__init__(model=model, load_data=load_data, name=SNLITask.NAME)
 # 		self.classifier = SimpleClassifier(classifier_params, 10)
 # 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
-# 		if torch.cuda.is_available():
-# 			self.classifier = self.classifier.cuda()
-# 			self.loss_module = self.loss_module.cuda()
 
 
 # 	def _load_datasets(self):

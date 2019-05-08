@@ -219,7 +219,12 @@ if __name__ == '__main__':
 	parser.add_argument("--restart", help="Does not load old checkpoints, and deletes those if checkpoint path is specified (including tensorboard file etc.)", action="store_true")
 	parser.add_argument("--checkpoint_path", help="Folder(name) where checkpoints should be saved", type=str, default=None)
 	parser.add_argument("--load_config", help="Tries to find parameter file in checkpoint path, and loads all given parameters from there", action="store_true")
-	# Model parameters
+	# Stacked LSTM encoder parameters
+	parser.add_argument("--no_skip_connections", help="Whether to use a feed-forward LSTM stack or apply skip connections", action="store_true")
+	parser.add_argument("--hidden_dims", help="Hidden dimensionality of LSTMs. List separated by \",\"", type=str, default="")
+	parser.add_argument("--proj_dims", help="Projection dimensionality between LSTMs. List separated by \",\"", type=str, default="")
+	parser.add_argument("--proj_dropout", help="Dropout applied on the projected output.", type=float, default=0.0)
+	# General model parameters
 	parser.add_argument("--embed_dim", help="Embedding dimensionality of sentence", type=int, default=2048)
 	parser.add_argument("--model", help="Which encoder model to use. 0: BOW, 1: LSTM, 2: Bi-LSTM, 3: Bi-LSTM with max pooling", type=int, default=0)
 	parser.add_argument("--embed_dropout", help="Dropout applied on the input embeddings", type=float, default=0.0)

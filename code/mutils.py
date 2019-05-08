@@ -25,7 +25,6 @@ from task import create_task, SNLITask, MNLITask, SSTTask, VUATask, VUASeqTask
 PARAM_CONFIG_FILE = "param_config.pik"
 
 
-
 ###################
 ## MODEL LOADING ##
 ###################
@@ -92,6 +91,16 @@ def load_args(checkpoint_path):
 
 
 def args_to_params(args):
+
+	def list_to_dims(dim_str):
+		splitted_dims = dim_str.split(",")
+		dims = list()
+		for d_str in splitted_dims:
+			if len(d_str) == 0:
+				continue
+			dims.append(int(d_str))
+		return dims
+
 	# Define model parameters
 	model_params = {
 		"embed_word_dim": 300,
@@ -102,7 +111,11 @@ def args_to_params(args):
 		"fc_num_layers": args.fc_num_layers,
 		"nli_classes": 3,
 		"embed_dropout": args.embed_dropout,
-		"finetune_embeds": args.finetune_embeds
+		"finetune_embeds": args.finetune_embeds,
+		"hidden_dims": list_to_dims(args.hidden_dims),
+		"proj_dims": list_to_dims(args.proj_dims),
+		"proj_dropout": args.proj_dropout,
+		"no_skip_connections": args.no_skip_connections
 	}
 	if args.model == MultiTaskEncoder.AVERAGE_WORD_VECS:
 		model_params["embed_sent_dim"] = 300

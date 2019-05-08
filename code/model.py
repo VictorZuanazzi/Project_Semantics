@@ -4,6 +4,9 @@ import numpy as np
 import sys
 import math
 
+def get_device():
+	return torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
 
 class MultiTaskEncoder(nn.Module):
 
@@ -25,11 +28,11 @@ class MultiTaskEncoder(nn.Module):
 		self.model_params = model_params
 		self._choose_encoder(model_type, model_params)
 
-		if torch.cuda.is_available():
-			self.embeddings = self.embeddings.cuda()
-			self.encoder = self.encoder.cuda()
+		self.embeddings = self.embeddings.to(get_device())
+		self.encoder = self.encoder.to(get_device())
 
 		self.apply(ESIM_Head._init_esim_weights)
+		print("Encoder: \n" + str(self.encoder))
 
 
 	def _choose_encoder(self, model_type, model_params):
@@ -50,10 +53,16 @@ class MultiTaskEncoder(nn.Module):
 		return self.encode_sentence(words, lengths, debug=debug)
 
 
-	def encode_sentence(self, words, lengths, word_level=False, debug=False):
+	def encode_sentence(self, words, lengths, word_level=False, debug=False, layer=-1):
 		word_embeds = self.embeddings(words)
 		word_embeds = self.embed_dropout(word_embeds)
 		sent_embeds = self.encoder(word_embeds, lengths, word_level=word_level)
+		num_layers = len(sent_embeds) if not word_level else len(sent_embeds[0])
+		layer = layer if layer < num_layers else -1
+		if not word_level:
+			sent_embeds = sent_embeds[layer]
+		else:
+			sent_embeds = [p[layer] for p in sent_embeds]
 		return sent_embeds
 
 
@@ -107,6 +116,7 @@ class SimpleClassifier(ClassifierHead):
 
 		self.classifier = nn.Sequential(*layer_list)
 		self.softmax_layer = nn.Softmax(dim=-1)
+		self.to(get_device())
 
 
 	def forward(self, input_features, applySoftmax=False):
@@ -142,6 +152,7 @@ class NLIClassifier(ClassifierHead):
 				nn.Linear(fc_dim, n_classes)
 			)
 		self.softmax_layer = nn.Softmax(dim=-1)
+		self.to(get_device())
 
 
 	def forward(self, embed_s1, embed_s2, applySoftmax=False):
@@ -190,6 +201,7 @@ class ESIM_Head(ClassifierHead):
 		)
 		self.BiLSTM_decoder = PyTorchLSTMChain(input_size=hidden_size, 
 											   hidden_size=hidden_size,
+											   per_direction=True,
 											   bidirectional=True)
 		self.classifier = nn.Sequential(
 			nn.Dropout(p=fc_dropout),
@@ -202,6 +214,7 @@ class ESIM_Head(ClassifierHead):
 		self.last_attention_map = None
 
 		self.apply(ESIM_Head._init_esim_weights)
+		self.to(get_device())
 
 
 	def forward(self, word_embed_premise, length_premise, word_embed_hypothesis, length_hypothesis, applySoftmax=False):
@@ -322,20 +335,19 @@ class EncoderBOW(EncoderModule):
 		mask = (word_positions.reshape(shape=[1, -1, 1]) < lengths.reshape([-1, 1, 1])).float()
 		out = torch.sum(mask * embed_words, dim=1) / lengths.reshape([-1, 1]).float()
 		if not word_level:
-			return out
+			return [out]
 		else:
-			return out, embed_words
+			return [out], [embed_words]
 
 
 class EncoderLSTM(EncoderModule):
 
 	def __init__(self, model_params):
 		super(EncoderLSTM, self).__init__()
-		self.lstm_chain = PyTorchLSTMChain(input_size=model_params["embed_word_dim"], 
-									hidden_size=model_params["embed_sent_dim"])
+		self.lstm_stack = create_StackedLSTM_from_params(model_params, bidirectional=False)
 
 	def forward(self, embed_words, lengths, word_level=False, debug=False):
-		final_states, word_outputs = self.lstm_chain(embed_words, lengths)
+		final_states, word_outputs = self.lstm_stack(embed_words, lengths)
 		if not word_level:
 			return final_states
 		else:
@@ -346,13 +358,11 @@ class EncoderBILSTM(EncoderModule):
 
 	def __init__(self, model_params):
 		super(EncoderBILSTM, self).__init__()
-		self.lstm_chain = PyTorchLSTMChain(input_size=model_params["embed_word_dim"], 
-										   hidden_size=int(model_params["embed_sent_dim"]/2),
-										   bidirectional=True)
+		self.lstm_stack = create_StackedLSTM_from_params(model_params, bidirectional=True)
 
 	def forward(self, embed_words, lengths, word_level=False, debug=False):
 		# embed words is of shape [batch_size, time, word_dim]
-		final_states, word_outputs = self.lstm_chain(embed_words, lengths)
+		final_states, word_outputs = self.lstm_stack(embed_words, lengths)
 		if not word_level:
 			return final_states
 		else:
@@ -363,18 +373,19 @@ class EncoderBILSTMPool(EncoderModule):
 
 	def __init__(self, model_params, skip_connections=False):
 		super(EncoderBILSTMPool, self).__init__()
-		self.lstm_chain = PyTorchLSTMChain(input_size=model_params["embed_word_dim"], 
-										   hidden_size=int(model_params["embed_sent_dim"]/2),
-										   bidirectional=True)
+		self.lstm_stack = create_StackedLSTM_from_params(model_params, bidirectional=True)
 
 	def forward(self, embed_words, lengths, word_level=False, debug=False):
 		# embed words is of shape [batch_size * 2, time, word_dim]
-		_, word_outputs = self.lstm_chain(embed_words, lengths)
+		_, word_outputs = self.lstm_stack(embed_words, lengths)
 		# Max time pooling
-		pooled_features, pool_indices = EncoderBILSTMPool.pool_over_time(word_outputs, lengths, pooling='MAX')
+		pooled_features = list()
+		for n_layer in range(len(word_outputs)):
+			pooled_layer_features, pool_indices = EncoderBILSTMPool.pool_over_time(word_outputs[n_layer], lengths, pooling='MAX')
+			pooled_features.append(pooled_layer_features)
 		if not word_level:
 			if debug:
-				return pooled_features, pool_indices
+				return pooled_features, pool_indices # Are the pooling indices for the last layer
 			else:
 				return pooled_features
 		else:
@@ -406,10 +417,108 @@ class EncoderBILSTMPool(EncoderModule):
 ## LOW LEVEL LSTM IMPLEMENTATION ##
 ###################################
 
+def create_StackedLSTM_from_params(model_params, bidirectional=False):
+	input_size = get_param_val(model_params, "embed_word_dim", 0)
+	hidden_dims = get_param_val(model_params, "hidden_dims", list())
+	hidden_dims.append(get_param_val(model_params, "embed_sent_dim", 2048))
+	projection_dims = get_param_val(model_params, "proj_dims", list())
+	if len(projection_dims) == 0:
+		projection_dims = None
+	else:
+		assert len(projection_dims) == (len(hidden_dims) - 1), \
+			   "[!] WARNING: The number of projection layers/dimensions (%i) do not fit to the number of hidden dimensions (%i) that are specified." % (len(projection_dims), len(hidden_dims))
+	projection_dropout = get_param_val(model_params, "proj_dropout", 0.0)
+	input_dropout = get_param_val(model_params, "input_dropout", 0.0)
+	skip_connections = not get_param_val(model_params, "no_skip_connections", False)
+
+	return StackedLSTMChain(
+			input_size=input_size,
+			hidden_dims=hidden_dims,
+			proj_dims=projection_dims,
+			proj_dropout=projection_dropout,
+			input_dropout=input_dropout,
+			bidirectional=bidirectional,
+			skip_connections=skip_connections
+		)
+
+
+class StackedLSTMChain(nn.Module):
+	"""
+		Stacked (bi)-LSTM chains to increase model complexity. Hyperparameters:
+		- Number of layers. Specified by the lengths of the list passed to the input parameter "hidden_dims"
+		- Size of the hidden dimensions for each layer. Specified by the numbers in the list of "hidden_dims"
+		- Stacking output of all previous layers as input to next layer (as done in DenseNet). Can be deactivated with parameter "skip_connections" 
+		- Projection layers between LSTM chains to reduce number of features. If not specified, outputs of LSTM layers are (eventuall concatenated 
+			with previous) passed to next layer without any processing. Only adviced if outputs are stacked.
+		- NOT IMPLEMENTED YET: layer on top of output of LSTM states. Used for do linear classification on it, guaranteeing that information between
+			tasks are shared.
+	"""
+
+	def __init__(self, input_size, hidden_dims, proj_dims=None, proj_dropout=0.0, input_dropout=0.0, bidirectional=False, skip_connections=True):
+		super(StackedLSTMChain, self).__init__()
+		if not isinstance(hidden_dims, list):
+			hidden_dims = list(hidden_dims)
+		if not isinstance(proj_dims, list):
+			proj_dims = [proj_dims] * (len(hidden_dims) - 1)
+		self.num_layers = len(hidden_dims)
+		self.input_size = input_size
+		self.hidden_dims = hidden_dims
+		self.proj_dims = proj_dims
+		self.proj_dropout = proj_dropout
+		self.input_dropout = input_dropout
+		self.bidirectional = bidirectional
+		self.skip_connections = skip_connections
+		self._build_network()
+
+	def _build_network(self):
+		self.lstm_chains = list()
+		self.proj_layers = list()
+		self.input_dropout = RNNDropout(self.input_dropout)
+		for n in range(len(self.hidden_dims)):
+			if n == 0:
+				inp_dim = self.input_size
+			else:
+				inp_dim = self.hidden_dims[n-1] if not self.skip_connections else (self.input_size + sum(self.hidden_dims[:n]))
+				if self.proj_dims is not None:
+					self.proj_layers.append(self._get_projection_layer(inp_dim, self.proj_dims[n-1], self.proj_dropout))
+					inp_dim = self.proj_dims[n-1]
+			n_chain = PyTorchLSTMChain(inp_dim, self.hidden_dims[n], per_direction=False, bidirectional=self.bidirectional)
+			self.lstm_chains.append(n_chain)
+		self.proj_layers = nn.ModuleList(self.proj_layers)
+		self.lstm_chains = nn.ModuleList(self.lstm_chains)
+
+	def _get_projection_layer(self, input_dim, output_dim, output_dropout):
+		return nn.Sequential(
+				nn.Linear(input_dim, output_dim),
+				nn.ReLU(),
+				RNNDropout(output_dropout)
+			)
+
+
+	def forward(self, word_embeds, lengths):
+		final_states = list()
+		outputs = list()
+		input_stack = [word_embeds]
+		for layer_index in range(len(self.lstm_chains)):
+			if self.skip_connections:
+				stacked_inputs = torch.cat(input_stack, dim=-1)
+			else:
+				stacked_inputs = input_stack[-1]
+			if layer_index > 0 and len(self.proj_layers) > 0:
+				stacked_inputs = self.proj_layers[layer_index-1](stacked_inputs)
+			layer_states, layer_outputs = self.lstm_chains[layer_index](stacked_inputs, lengths)
+			final_states.append(layer_states)
+			outputs.append(layer_outputs)
+			input_stack.append(self.input_dropout(layer_outputs))
+		return final_states, outputs
+
+
 class PyTorchLSTMChain(nn.Module):
 
-	def __init__(self, input_size, hidden_size, bidirectional=False):
+	def __init__(self, input_size, hidden_size, per_direction=False, bidirectional=False):
 		super(PyTorchLSTMChain, self).__init__()
+		if not per_direction and bidirectional:
+			hidden_size = int(hidden_size/2)
 		self.lstm_cell = nn.LSTM(input_size, hidden_size, bidirectional=bidirectional)
 		self.hidden_size = hidden_size
 

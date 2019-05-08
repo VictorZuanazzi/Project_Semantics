@@ -6,6 +6,7 @@ import re
 import sys
 from random import shuffle
 from vocab import load_word2vec_from_file
+from model import get_device
 import pandas as pd
 
 # 0 => Full debug
@@ -133,11 +134,8 @@ class DatasetTemplate:
 			for s_index, sent in enumerate(batch_sents):
 				sent_embeds[s_index, :sent.shape[0]] = sent
 			if toTorch:
-				sent_embeds = torch.LongTensor(sent_embeds)
-				lengths_sents = torch.LongTensor(lengths_sents)
-				if torch.cuda.is_available():
-					sent_embeds = sent_embeds.cuda()
-					lengths_sents = lengths_sents.cuda()
+				sent_embeds = torch.LongTensor(sent_embeds).to(get_device())
+				lengths_sents = torch.LongTensor(lengths_sents).to(get_device())
 			lengths.append(lengths_sents)
 			embeds.append(sent_embeds)
 		if batch_labels is not None and toTorch:
@@ -146,9 +144,7 @@ class DatasetTemplate:
 				for label_index, lab in enumerate(batch_labels):
 					padded_labels[label_index, :lab.shape[0]] = np.array(lab)
 				batch_labels = padded_labels
-			batch_labels = torch.LongTensor(np.array(batch_labels))
-			if torch.cuda.is_available():
-				batch_labels = batch_labels.cuda()
+			batch_labels = torch.LongTensor(np.array(batch_labels)).to(get_device())
 		return embeds, lengths, batch_labels
 	
 	@staticmethod
@@ -163,9 +159,7 @@ class DatasetTemplate:
 				if cuda is available, torch tensor is returned in cuda.
 		"""
 		if toTorch:
-			some_object = torch.LongTensor(some_object)
-			if torch.cuda.is_available():
-				some_object = some_object.cuda()
+			some_object = torch.LongTensor(some_object).to(get_device())
 		else:
 			some_object = np.array(some_object)
 			
@@ -260,7 +254,7 @@ class SNLIDataset(DatasetTemplate):
 		if data_path is not None:
 			self.load_data(data_path, data_type)
 		else:
-			self.data_list == list()
+			self.data_list = list()
 		super().set_data_list(self.data_list)
 		super().add_label_explanation(NLIData.LABEL_LIST)
 
@@ -311,7 +305,7 @@ class SSTDataset(DatasetTemplate):
 		if data_path is not None:
 			self.load_data(data_path, data_type)
 		else:
-			self.data_list == list()
+			self.data_list = list()
 		super().set_data_list(self.data_list)
 		super().add_label_explanation(SSTDataset.LABEL_LIST)
 
@@ -330,6 +324,23 @@ class SSTDataset(DatasetTemplate):
 				label = 0 if label < 2 else 1
 				d = SentData(sentence=" ".join(tokens), label=label)
 				self.data_list.append(d)
+
+
+class POSDataset(DatasetTemplate):
+
+	def __init__(self, data_type, data_path="../data/POS/", shuffle_data=True, name_suffix=""):
+		super(POSDataset, self).__init__(data_type, shuffle_data, name="POS" + name_suffix)
+		if data_path is not None:
+			self.load_data(data_path, data_type)
+		else:
+			self.data_list = list()
+		super().set_data_list(self.data_list)
+		super().add_label_explanation(POSData.LABEL_LIST)
+
+
+	def load_data(self, data_path, data_type):
+		pass
+
 
 
 class VUADataset(DatasetTemplate):
@@ -949,14 +960,17 @@ class POSData(SeqData):
 		"ADP": 1,
 		"ADV": 2,
 		"CCONJ": 3,
+		"CONJ": 3,
 		"DET": 4,
 		"INTJ": 5,
 		"NOUN": 6,
 		"NUM": 7,
 		"PART": 8,
+		"PRT": 8,
 		"PRON": 9,
 		"PROPN": 10,
 		"PUNCT": 11,
+		".": 11,
 		"SYM": 12,
 		"VERB": 13,
 		"X": -1
