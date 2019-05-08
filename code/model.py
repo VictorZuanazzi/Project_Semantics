@@ -73,7 +73,7 @@ class NLIModel(nn.Module):
         elif elmo_type == 'original':
             options_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json'
             weight_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_weights.hdf5'
-        return Elmo(options_file, weight_file, 1, dropout=0)
+        return Elmo(options_file, weight_file, 1)
 
     def encode_sentence(self, words, lengths, dummy_input=False, debug=False):
         # Words is a tensor of size (batch_len, sentence_len)
