@@ -339,8 +339,28 @@ class POSDataset(DatasetTemplate):
 
 
 	def load_data(self, data_path, data_type):
-		pass
+		with open(os.path.join(data_path, "sents." + data_type), mode="r", encoding="utf-8") as f:
+			sentences = f.readlines()
+		with open(os.path.join(data_path, "labels." + data_type), mode="r", encoding="utf-8") as f:
+			labels = f.readlines()
+		self.data_list = list()
+		for i, sent, lab in zip(range(len(sentences)), sentences, labels):
+			if debug_level() == 0:
+				print("Read %4.2f%% of the dataset" % (100.0 * i / len(sentences)), end="\r")
+			new_d = POSData(sentence=sent.replace("\n",""), pos_tags=[l for l in lab.replace("\n","").split(" ") if len(l)>0])
+			self.data_list.append(new_d)
 
+
+	def export_to_file(self, output_dir, suffix):
+		pure_sentences = "\n".join([" ".join(d.sent_words) for d in self.data_list])
+		pos_tags = "\n".join([" ".join([POSData.label_to_string(d_ind) for d_ind in d.label_words]) for d in self.data_list])
+		with open(os.path.join(output_dir, "sents." + suffix), "w", encoding="utf-8") as f:
+			f.write(pure_sentences)
+		with open(os.path.join(output_dir, "labels." + suffix), "w", encoding="utf-8") as f:
+			f.write(pos_tags)
+		print("Testing reading the exported dataset...")
+		self.load_data(data_path=output_dir, data_type=suffix)
+		print("Successfully passed test")
 
 
 class VUADataset(DatasetTemplate):
@@ -724,6 +744,7 @@ class SentData:
 		for i in range(len(sent_words)):
 			if len(sent_words[i]) > 1 and "." in sent_words[i]:
 				sent_words[i] = sent_words[i].replace(".","")
+		sent_words = [w for w in sent_words if len(w) > 0]
 		return sent_words
 
 	@staticmethod
@@ -977,7 +998,7 @@ class POSData(SeqData):
 	}
 
 	def __init__(self, sentence, pos_tags):
-		super(POSData, self).__init__(sentence, [POSDat.LABEL_LIST[p] for p in pos_tags])
+		super(POSData, self).__init__(sentence, [POSData.LABEL_LIST[p] for p in pos_tags])
 
 	@staticmethod
 	def label_to_string(label):
