@@ -4,9 +4,7 @@ import numpy as np
 import sys
 import math
 
-# TODO: see which performs better
-# from allennlp.modules.elmo import Elmo, batch_to_ids
-# from allennlp.commands.elmo import ElmoEmbedder
+from allennlp.modules.elmo import Elmo, batch_to_ids
 
 
 class NLIModel(nn.Module):
@@ -28,13 +26,13 @@ class NLIModel(nn.Module):
         self.model_params = model_params
         self._choose_encoder(model_type, model_params)
         self.classifier = NLIClassifier(model_params)
-        # self.elmo = self.load_elmo(elmo_type)
+        self.elmo = self.load_elmo(elmo_type)
 
         if torch.cuda.is_available():
             self.embeddings = self.embeddings.cuda()
             self.encoder = self.encoder.cuda()
             self.classifier = self.classifier.cuda()
-            # self.elmo = self.elmo.cuda()
+            self.elmo = self.elmo.cuda()
 
     def _choose_encoder(self, model_type, model_params):
         if model_type == NLIModel.AVERAGE_WORD_VECS:
@@ -51,10 +49,10 @@ class NLIModel(nn.Module):
 
     def forward(self, words_s1, lengths_s1=None, words_s2=None, lengths_s2=None, dummy_input=False, applySoftmax=False, eval=False):
 
-        # if eval:
-        #     self.elmo.eval()
-        # else:
-        #     self.elmo.train()
+        if eval:
+            self.elmo.eval()
+        else:
+            self.elmo.train()
 
         # If only one element is given, we assume that the first one must be a tuple of all inputs
         # Required for e.g. graph creation in tensorboard
@@ -68,58 +66,50 @@ class NLIModel(nn.Module):
         out = self.classifier(embed_s1, embed_s2, applySoftmax=applySoftmax)
         return out
 
-    # def load_elmo(self, elmo_type):
-    #     if elmo_type not in ['small', 'medium', 'original']:
-    #         print("[!] WARNING: Unsupported ELMo size. Reverting to medium size")
-    #         elmo_type = 'medium'
-    #     if elmo_type == 'small':
-    #         options_file = 'elmo/' + elmo_type + '/elmo_2x1024_128_2048cnn_1xhighway_options.json'
-    #         weight_file = 'elmo/' + elmo_type + '/elmo_2x1024_128_2048cnn_1xhighway_weights.hdf5'
-    #     elif elmo_type == 'medium':
-    #         options_file = 'elmo/' + elmo_type + '/elmo_2x2048_256_2048cnn_1xhighway_options.json'
-    #         weight_file = 'elmo/' + elmo_type + '/elmo_2x2048_256_2048cnn_1xhighway_weights.hdf5'
-    #     elif elmo_type == 'original':
-    #         options_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json'
-    #         weight_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_weights.hdf5'
-    #     if torch.cuda.is_available():
-    #         print("=" * 50 + "\nLoaded CUDA ElmoEmbedder\n" + "=" * 50)
-    #         return ElmoEmbedder(options_file, weight_file, cuda_device=torch.cuda.current_device())
-    #     return ElmoEmbedder(options_file, weight_file)
-        # return Elmo(options_file, weight_file, 1)
+    def load_elmo(self, elmo_type):
+        if elmo_type not in ['small', 'medium', 'original']:
+            print("[!] WARNING: Unsupported ELMo size. Reverting to medium size")
+            elmo_type = 'medium'
+        if elmo_type == 'small':
+            options_file = 'elmo/' + elmo_type + '/elmo_2x1024_128_2048cnn_1xhighway_options.json'
+            weight_file = 'elmo/' + elmo_type + '/elmo_2x1024_128_2048cnn_1xhighway_weights.hdf5'
+        elif elmo_type == 'medium':
+            options_file = 'elmo/' + elmo_type + '/elmo_2x2048_256_2048cnn_1xhighway_options.json'
+            weight_file = 'elmo/' + elmo_type + '/elmo_2x2048_256_2048cnn_1xhighway_weights.hdf5'
+        elif elmo_type == 'original':
+            options_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json'
+            weight_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_weights.hdf5'
+        return Elmo(options_file, weight_file, 1, requires_grad=True)
 
     def encode_sentence(self, words, lengths, dummy_input=False, debug=False):
         # Words is a tensor of size (batch_len, sentence_len)
 
         # Get list of sentences as a list of string token lists
-        # str_words = []
-        # for sentence_idx in range(words.size()[0]):
-        #     sentence = []
-        #     for word_idx in range(words.size()[1]):
-        #         w_ix = words[sentence_idx, word_idx].item()
-        #         if w_ix != 0:
-        #             sentence.append(self.id2word[w_ix])
-        #         else:
-        #             break
-        #     str_words.append(sentence)
+        str_words = []
+        for sentence_idx in range(words.size()[0]):
+            sentence = []
+            for word_idx in range(words.size()[1]):
+                w_ix = words[sentence_idx, word_idx].item()
+                if w_ix != 0:
+                    sentence.append(self.id2word[w_ix])
+                else:
+                    break
+            str_words.append(sentence)
 
         # Get word embeddings, which is a tensor of size (batch_len x sentence_len x word_embedding_len)
         word_embeds = self.embeddings(words)
 
-        # TODO: chose which one works better
         # Get ELMo embeddings
-        # character_ids = batch_to_ids(str_words)
-        # if torch.cuda.is_available():
-        #     character_ids = character_ids.cuda()
-        # elmo_embeds = self.elmo(character_ids)['elmo_representations'][0]
-
-        # vectors = self.elmo.batch_to_embeddings(str_words)[0]
-        # elmo_embeds = torch.cat((vectors[:, 1], vectors[:, 2]), 2)
+        character_ids = batch_to_ids(str_words)
+        if torch.cuda.is_available():
+            character_ids = character_ids.cuda()
+        elmo_embeds = self.elmo(character_ids)['elmo_representations'][0]
 
         # Combine the two embeddings
-        # full_embeds = torch.cat((word_embeds, elmo_embeds), 2)
+        full_embeds = torch.cat((word_embeds, elmo_embeds), 2)
 
         # Get sentence embeddings, which is a tensor of size (batch_len x sentence_embedding_len)
-        sent_embeds = self.encoder(word_embeds, lengths, dummy_input=dummy_input, debug=debug)
+        sent_embeds = self.encoder(full_embeds, lengths, dummy_input=dummy_input, debug=debug)
 
         return sent_embeds
 
