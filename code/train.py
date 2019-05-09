@@ -43,7 +43,7 @@ class SNLITrain:
 											 weight_decay=optimizer_params["weight_decay"],
 											 momentum=optimizer_params["momentum"])
 		elif optimizer_params["optimizer"] == SNLITrain.OPTIMIZER_ADAM:
-			self.optimizer = torch.optim.Adam(self.model.parameters(), 
+			self.optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()), 
 											  lr=optimizer_params["lr"])
 		else:
 			print("[!] ERROR: Unknown optimizer: " + str(optimizer_params["optimizer"]))
