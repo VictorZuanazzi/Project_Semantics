@@ -244,6 +244,7 @@ if __name__ == '__main__':
 	parser.add_argument("--task_MNLI", help="Frequency with which the task MultiNLI should be used. Default: 0 (not used at all)", type=float, default=0)
 	parser.add_argument("--task_MNLI_head", help="Specification of MultiNLI task head. Use string encoding, for example: \"--task_MNLI_head model=0,dp=0.5,dim=300\". Default: use default values defined by parameters \"fc_dim\" etc.", type=str, default="")
 	parser.add_argument("--task_POS", help="Frequency with which the task POS tagging should be used. Default: 0 (not used at all)", type=float, default=0)
+	parser.add_argument("--task_POS_head", help="Specification of POS tagging task head. Use string encoding, for example: \"--task_POS_head model=0,dp=0.5,dim=300\". Default: use default values defined by parameters \"fc_dim\" etc.", type=str, default="")
 	parser.add_argument("--task_SST", help="Frequency with which the task Stanford Sentiment Treebank should be used. Default: 0 (not used at all)", type=float, default=0)
 	parser.add_argument("--task_SST_head", help="Specification of SST task head. Use string encoding, for example: \"--task_SST_head model=0,dp=0.5,dim=300\". Default: use default values defined by parameters \"fc_dim\" etc.", type=str, default="")
 	parser.add_argument("--task_VUA", help="Frequency with which the task VUMetaphor should be used. Default: 0 (not used at all)", type=float, default=0)

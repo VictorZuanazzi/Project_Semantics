@@ -56,14 +56,16 @@ class MultiTaskEncoder(nn.Module):
 	def encode_sentence(self, words, lengths, word_level=False, debug=False, layer=-1):
 		word_embeds = self.embeddings(words)
 		word_embeds = self.embed_dropout(word_embeds)
-		sent_embeds = self.encoder(word_embeds, lengths, word_level=word_level)
-		num_layers = len(sent_embeds) if not word_level else len(sent_embeds[0])
-		layer = layer if layer < num_layers else -1
+		sent_embeds = self.encoder(word_embeds, lengths, word_level=word_level, max_layer=layer)
 		if not word_level:
-			sent_embeds = sent_embeds[layer]
+			sent_embeds = sent_embeds[-1]
 		else:
-			sent_embeds = [p[layer] for p in sent_embeds]
+			sent_embeds = [p[-1] for p in sent_embeds]
 		return sent_embeds
+
+
+	def get_layer_size(self, layer):
+		return self.encoder.lstm_stack.layer_size(layer)
 
 
 ####################################
@@ -319,7 +321,7 @@ class EncoderModule(nn.Module):
 	def __init__(self):
 		super(EncoderModule, self).__init__()
 
-	def forward(self, embed_words, lengths, word_level=False, debug=False):
+	def forward(self, embed_words, lengths, word_level=False, max_layer=-1, debug=False):
 		raise NotImplementedError
 
 
@@ -328,7 +330,7 @@ class EncoderBOW(EncoderModule):
 	def __init__(self):
 		super(EncoderBOW, self).__init__()
 
-	def forward(self, embed_words, lengths, word_level=False, debug=False):
+	def forward(self, embed_words, lengths, word_level=False, max_layer=-1, debug=False):
 		# Embeds are of shape [batch, time, embed_dim]
 		# Lengths is of shape [batch]
 		word_positions = torch.arange(start=0, end=embed_words.shape[1], dtype=lengths.dtype, device=embed_words.device)
@@ -346,8 +348,8 @@ class EncoderLSTM(EncoderModule):
 		super(EncoderLSTM, self).__init__()
 		self.lstm_stack = create_StackedLSTM_from_params(model_params, bidirectional=False)
 
-	def forward(self, embed_words, lengths, word_level=False, debug=False):
-		final_states, word_outputs = self.lstm_stack(embed_words, lengths)
+	def forward(self, embed_words, lengths, word_level=False, max_layer=-1, debug=False):
+		final_states, word_outputs = self.lstm_stack(embed_words, lengths, max_layer=max_layer)
 		if not word_level:
 			return final_states
 		else:
@@ -360,9 +362,9 @@ class EncoderBILSTM(EncoderModule):
 		super(EncoderBILSTM, self).__init__()
 		self.lstm_stack = create_StackedLSTM_from_params(model_params, bidirectional=True)
 
-	def forward(self, embed_words, lengths, word_level=False, debug=False):
+	def forward(self, embed_words, lengths, word_level=False, max_layer=-1, debug=False):
 		# embed words is of shape [batch_size, time, word_dim]
-		final_states, word_outputs = self.lstm_stack(embed_words, lengths)
+		final_states, word_outputs = self.lstm_stack(embed_words, lengths, max_layer=max_layer)
 		if not word_level:
 			return final_states
 		else:
@@ -375,9 +377,9 @@ class EncoderBILSTMPool(EncoderModule):
 		super(EncoderBILSTMPool, self).__init__()
 		self.lstm_stack = create_StackedLSTM_from_params(model_params, bidirectional=True)
 
-	def forward(self, embed_words, lengths, word_level=False, debug=False):
+	def forward(self, embed_words, lengths, word_level=False, max_layer=-1, debug=False):
 		# embed words is of shape [batch_size * 2, time, word_dim]
-		_, word_outputs = self.lstm_stack(embed_words, lengths)
+		_, word_outputs = self.lstm_stack(embed_words, lengths, max_layer=max_layer)
 		# Max time pooling
 		pooled_features = list()
 		for n_layer in range(len(word_outputs)):
@@ -494,12 +496,17 @@ class StackedLSTMChain(nn.Module):
 				RNNDropout(output_dropout)
 			)
 
+	def layer_size(self, layer):
+		return self.hidden_dims[layer]
 
-	def forward(self, word_embeds, lengths):
+
+	def forward(self, word_embeds, lengths, max_layer=-1):
 		final_states = list()
 		outputs = list()
 		input_stack = [word_embeds]
-		for layer_index in range(len(self.lstm_chains)):
+
+		num_layers = max_layer+1 if (max_layer < len(self.lstm_chains) and max_layer >= 0) else len(self.lstm_chains)
+		for layer_index in range(num_layers):
 			if self.skip_connections:
 				stacked_inputs = torch.cat(input_stack, dim=-1)
 			else:

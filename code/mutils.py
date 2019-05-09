@@ -20,7 +20,7 @@ from shutil import copyfile
 from model import MultiTaskEncoder
 from data import DatasetHandler, debug_level, set_debug_level, DatasetTemplate, SentData
 from vocab import load_word2vec_from_file
-from task import create_task, SNLITask, MNLITask, SSTTask, VUATask, VUASeqTask
+from task import create_task, SNLITask, MNLITask, SSTTask, VUATask, VUASeqTask, POSTask
 
 PARAM_CONFIG_FILE = "param_config.pik"
 
@@ -161,6 +161,9 @@ def args_to_params(args):
 	if args.task_VUAseq > 0:
 		task_freq_dict[VUASeqTask.NAME] = args.task_VUAseq
 		add_head(VUASeqTask.NAME, args.task_VUAseq_head)
+	if args.task_POS > 0:
+		task_freq_dict[POSTask.NAME] = args.task_POS
+		add_head(POSTask.NAME, args.task_POS_head)
 
 	tasks = sorted(list(task_freq_dict.keys()))
 

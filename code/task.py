@@ -12,7 +12,7 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 from model import SimpleClassifier, NLIClassifier, ESIM_Head, get_device
-from data import DatasetTemplate, DatasetHandler, debug_level, VUAData
+from data import DatasetTemplate, DatasetHandler, debug_level, VUAData, POSData
 from vocab import get_id2word_dict
 
 
@@ -28,6 +28,8 @@ def create_task(model, task, model_params, debug=False):
 		return VUATask(model, model_params, load_data=True, debug=debug)
 	elif task == VUASeqTask.NAME:
 		return VUASeqTask(model, model_params, load_data=True, debug=debug)
+	elif task == POSTask.NAME:
+		return POSTask(model, model_params, load_data=True, debug=debug)
 	else:
 		print("[!] ERROR: Unknown task " + str(task))
 		print("If the task exists but could not be found, add it in the function 'create_task' in the file 'task.py'.")
@@ -481,9 +483,11 @@ class VUATask(TaskTemplate):
 class VUASeqTask(TaskTemplate):
 
 	NAME = "VUA_Sequential_Metaphor_Detection"
+	LAYER = 1
 
 	def __init__(self, model, model_params, load_data=True, debug=False):
 		super(VUASeqTask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=VUASeqTask.NAME)
+		self.classifier_params["embed_sent_dim"] = self.model.get_layer_size(VUASeqTask.LAYER)
 		self.classifier = SimpleClassifier(self.classifier_params, 2)
 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
 		self.print_classifier()
@@ -518,7 +522,7 @@ class VUASeqTask(TaskTemplate):
 
 
 	def _forward_model(self, embeds, lengths, applySoftmax=False):
-		_, word_embeds = self.model.encode_sentence(embeds, lengths, word_level=True, layer=1)
+		_, word_embeds = self.model.encode_sentence(embeds, lengths, word_level=True, layer=VUASeqTask.LAYER)
 		word_embeds = word_embeds.view(-1, word_embeds.shape[2])
 		out = self.classifier(word_embeds, applySoftmax=False)
 		return out
@@ -528,46 +532,48 @@ class VUASeqTask(TaskTemplate):
 
 
 
-# class POSTask(TaskTemplate):
+class POSTask(TaskTemplate):
 
-# 	NAME = "POS_Tagging"
+	NAME = "POS_Tagging"
+	LAYER = 0
 
-# 	def __init__(self, model, classifier_params, load_data=True):
-# 		super(SNLITask, self).__init__(model=model, load_data=load_data, name=SNLITask.NAME)
-# 		self.classifier = SimpleClassifier(classifier_params, 10)
-# 		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
-
-
-# 	def _load_datasets(self):
-# 		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_SNLI_datasets()
+	def __init__(self, model, model_params, load_data=True, debug=False):
+		super(POSTask, self).__init__(model=model, model_params=model_params, load_data=load_data, debug=debug, name=POSTask.NAME)
+		self.classifier_params["embed_sent_dim"] = self.model.get_layer_size(POSTask.LAYER)
+		self.classifier = SimpleClassifier(self.classifier_params, POSData.num_classes())
+		self.loss_module = TaskTemplate._create_CrossEntropyLoss()
 
 
-# 	def train_step(self, batch_size, loop_dataset=True):
-# 		assert self.train_dataset is not None, "[!] ERROR: Training dataset not loaded. Please load the dataset beforehand for training."
+	def _load_datasets(self):
+		self.train_dataset, self.val_dataset, self.test_dataset = DatasetHandler.load_POS_MNLI_datasets(debug_dataset=self.debug)
+
+
+	def train_step(self, batch_size, loop_dataset=True):
+		assert self.train_dataset is not None, "[!] ERROR: Training dataset not loaded. Please load the dataset beforehand for training."
 		
-# 		embeds, lengths, batch_labels = self.train_dataset.get_batch(batch_size, loop_dataset=loop_dataset, toTorch=True)
+		embeds, lengths, batch_labels = self.train_dataset.get_batch(batch_size, loop_dataset=loop_dataset, toTorch=True)
+		batch_labels = batch_labels.view(-1)
 		
-# 		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0])
-# 		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1])
+		out = self._forward_model(embeds, lengths, applySoftmax=False)
+		loss = self.loss_module(out, batch_labels)
 
-# 		out = self.classifier(embed_s1, embed_s2, applySoftmax=False)
+		_, pred_labels = torch.max(out, dim=-1)
+		acc = torch.sum(pred_labels == batch_labels).float() / torch.sum(batch_labels >= 0).float()
 
-# 		loss = self.loss_module(out, batch_labels)
-
-# 		_, pred_labels = torch.max(out, dim=-1)
-# 		acc = torch.sum(pred_labels == batch_labels) / pred_labels.shape[-1]
-
-# 		return loss, acc
+		return loss, acc
 
 
-# 	def _eval_batch(self, batch):
-# 		embeds, lengths, batch_labels = batch
+	def _eval_batch(self, batch):
+		embeds, lengths, batch_labels = batch
 		
-# 		embed_s1 = self.model.encode_sentence(embeds[0], lengths[0])
-# 		embed_s2 = self.model.encode_sentence(embeds[1], lengths[1])
+		preds = self._forward_model(embeds, lengths, applySoftmax=True)
+		_, pred_labels = torch.max(preds, dim=-1)
+		
+		return pred_labels, batch_labels.view(-1)
 
-# 		preds = self.classifier(embed_s1, embed_s2, applySoftmax=True)
-		
-# 		_, pred_labels = torch.max(preds, dim=-1)
-		
-# 		return pred_labels, batch_labels
+
+	def _forward_model(self, embeds, lengths, applySoftmax=False):
+		_, word_embeds = self.model.encode_sentence(embeds, lengths, word_level=True, layer=POSTask.LAYER)
+		word_embeds = word_embeds.view(-1, word_embeds.shape[2])
+		out = self.classifier(word_embeds, applySoftmax=False)
+		return out

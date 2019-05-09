@@ -36,6 +36,7 @@ class DatasetHandler:
 	VUA_DATASETS = None
 	VUA_SEQ_DATASETS = None
 	WIC_DATASETS = None
+	POS_MNLI_DATASETS = None
 
 
 	@staticmethod
@@ -44,6 +45,8 @@ class DatasetHandler:
 		dataset_list = list()
 		if data_types is None:
 			data_types = ['train' if not debug_dataset else 'dev', 'dev', 'test']
+		elif debug_dataset:
+			data_types[0] = data_types[1]
 		for data_type in data_types:
 			if data_path is None:
 				dataset = dataset_fun(data_type, shuffle_data=('train' in data_type))
@@ -95,6 +98,12 @@ class DatasetHandler:
 		if DatasetHandler.WIC_DATASETS is None:
 			DatasetHandler.WIC_DATASETS = DatasetHandler._load_all_type_datasets(WiCDataset, debug_dataset=debug_dataset)
 		return DatasetHandler.WIC_DATASETS[0], DatasetHandler.WIC_DATASETS[1], DatasetHandler.WIC_DATASETS[2]
+
+	@staticmethod
+	def load_POS_MNLI_datasets(debug_dataset=False):
+		if DatasetHandler.POS_MNLI_DATASETS is None:
+			DatasetHandler.POS_MNLI_DATASETS = DatasetHandler._load_all_type_datasets(POSDataset, data_path="../data/POS/", data_types=['train_mnli', 'dev_mnli', 'test_mnli'], name="POS_MNLI", debug_dataset=debug_dataset)
+		return DatasetHandler.POS_MNLI_DATASETS[0], DatasetHandler.POS_MNLI_DATASETS[1], DatasetHandler.POS_MNLI_DATASETS[2]
 
 
 class DatasetTemplate:
@@ -172,7 +181,7 @@ class DatasetTemplate:
 		all_words = dict()
 		for i, data in enumerate(self.data_list):
 			if debug_level() == 0:
-				print("Processed %4.2f%% of the dataset" % (100.0 * i / len(self.data_list)), end="\r")
+				print("Processed %4.2f%% of the dataset %s" % (100.0 * i / len(self.data_list), self.dataset_name), end="\r")
 			if isinstance(data, NLIData):
 				data_words = data.premise_words + data.hypothesis_words
 			elif isinstance(data, WiCData):
@@ -235,9 +244,11 @@ class DatasetTemplate:
 		print("Number of examples: " + str(len(self.data_list)))
 		if len(self.data_list) > 0 and isinstance(self.data_list[0].label, (list, np.ndarray)):
 			print("Number of token-level labels: " + str(sum([d.label.shape[0] for d in self.data_list])))
-			print("Labelwise amount:")
-			for key, val in self.label_dict.items():
-				print("\t- " + val + ": " + str(sum([l == key for d in self.data_list for l in (d if len(d.label.shape) == 1 else d.label[:,0])])))
+			if len(self.data_list) < 30000:
+				print("Labelwise amount:")
+				label_list = [l for d in self.data_list for l in (d.label if len(d.label.shape) == 1 else d.label[:,0])]
+				for key, val in self.label_dict.items():
+					print("\t- " + val + ": " + str(label_list.count(key)))
 		else:
 			print("Labelwise amount:")
 			for key, val in self.label_dict.items():
@@ -268,7 +279,7 @@ class SNLIDataset(DatasetTemplate):
 		i = 0
 		for prem, hyp, lab in zip(s1, s2, labels):
 			if debug_level() == 0:
-				print("Read %4.2f%% of the dataset" % (100.0 * i / len(s1)), end="\r")
+				print("Read %4.2f%% of the dataset %s" % (100.0 * i / len(s1), self.dataset_name), end="\r")
 			i += 1
 			if lab == -1:
 				self.num_invalids += 1
@@ -328,8 +339,8 @@ class SSTDataset(DatasetTemplate):
 
 class POSDataset(DatasetTemplate):
 
-	def __init__(self, data_type, data_path="../data/POS/", shuffle_data=True, name_suffix=""):
-		super(POSDataset, self).__init__(data_type, shuffle_data, name="POS" + name_suffix)
+	def __init__(self, data_type, data_path="../data/POS/", shuffle_data=True, name="POS"):
+		super(POSDataset, self).__init__(data_type, shuffle_data, name=name)
 		if data_path is not None:
 			self.load_data(data_path, data_type)
 		else:
@@ -346,7 +357,7 @@ class POSDataset(DatasetTemplate):
 		self.data_list = list()
 		for i, sent, lab in zip(range(len(sentences)), sentences, labels):
 			if debug_level() == 0:
-				print("Read %4.2f%% of the dataset" % (100.0 * i / len(sentences)), end="\r")
+				print("Read %4.2f%% of the dataset %s" % (100.0 * i / len(sentences), self.dataset_name), end="\r")
 			new_d = POSData(sentence=sent.replace("\n",""), pos_tags=[l for l in lab.replace("\n","").split(" ") if len(l)>0])
 			self.data_list.append(new_d)
 
@@ -411,7 +422,7 @@ class VUADataset(DatasetTemplate):
 		
 		for i in df_data.index.tolist():
 			if debug_level() == 0:
-				print("Read %4.2f%% of the dataset" % (100.0 * i / len(df_data)), end="\r")
+				print("Read %4.2f%% of the dataset %s" % (100.0 * i / len(df_data), self.dataset_name), end="\r")
 			
 			#reads the relevant parts of the dataset
 			sentence = df_data.at[i, "sentence"]
@@ -515,7 +526,7 @@ class VUASeqDataset(DatasetTemplate):
 		
 		for i in df_data.index.tolist():
 			if debug_level() == 0:
-				print("Read %4.2f%% of the dataset" % (100.0 * i / len(df_data)), end="\r")
+				print("Read %4.2f%% of the dataset %s" % (100.0 * i / len(df_data), self.dataset_name), end="\r")
 			
 			#reads the relevant parts of the dataset
 			sentence = df_data.at[i, "sentence"]
@@ -637,7 +648,7 @@ class WiCDataset(DatasetTemplate):
 		for i, data in enumerate(data_line):
 			
 			if debug_level() == 0:
-				print("Read %4.2f%% of the dataset" % (100.0 * i / len(data_line)), end="\r")
+				print("Read %4.2f%% of the dataset %s" % (100.0 * i / len(data_line), self.dataset_name), end="\r")
 			 
 			if len(data) != 5:
 				#skip sequences that are not in the correct format
@@ -1005,6 +1016,10 @@ class POSData(SeqData):
 		for key, val in POSData.LABEL_LIST.items():
 			if val == label:
 				return key
+
+	@staticmethod
+	def num_classes():
+		return max(list(POSData.LABEL_LIST.values())) + 1
 
 
 class VUASeqData(SeqData):
