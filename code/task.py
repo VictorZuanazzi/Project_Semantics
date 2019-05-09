@@ -89,14 +89,16 @@ class TaskTemplate:
 			preds_list += torch.squeeze(pred_labels).tolist()
 			label_list += torch.squeeze(batch_labels).tolist()
 
-		to_remove = [i for i, l in enumerate(label_list) if l < 0]
-		for r_index in sorted(to_remove)[::-1]:
-			del preds_list[r_index]
-			del label_list[r_index]
+		# to_remove = [i for i, l in enumerate(label_list) if l < 0]
+		# for r_index in sorted(to_remove)[::-1]:
+		# 	del preds_list[r_index]
+		# 	del label_list[r_index]
 		
 		# Metric output
 		preds_list = np.array(preds_list)
 		label_list = np.array(label_list)
+		preds_list = preds_list[label_list >= 0]
+		label_list = label_list[label_list >= 0]
 		accuracy = np.sum(preds_list == label_list) * 1.0 / preds_list.shape[0]
 		detailed_acc = {"accuracy": accuracy, 
 						"predictions": preds_list, 

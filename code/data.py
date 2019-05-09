@@ -115,6 +115,7 @@ class DatasetTemplate:
 		self.label_dict = dict()
 		self.num_invalids = 0
 		self.dataset_name = name
+		self.label_count = None
 
 	def set_data_list(self, new_data):
 		self.data_list = new_data
@@ -244,11 +245,13 @@ class DatasetTemplate:
 		print("Number of examples: " + str(len(self.data_list)))
 		if len(self.data_list) > 0 and isinstance(self.data_list[0].label, (list, np.ndarray)):
 			print("Number of token-level labels: " + str(sum([d.label.shape[0] for d in self.data_list])))
-			if len(self.data_list) < 30000:
-				print("Labelwise amount:")
+			print("Labelwise amount:")
+			if self.label_count is None:
 				label_list = [l for d in self.data_list for l in (d.label if len(d.label.shape) == 1 else d.label[:,0])]
-				for key, val in self.label_dict.items():
-					print("\t- " + val + ": " + str(label_list.count(key)))
+				self.label_count = {key: label_list.count(key) for key, _ in self.label_dict.items()}
+			for key, val in self.label_dict.items():
+				print("\t- " + val + ": " + str(self.label_count[key]))
+
 		else:
 			print("Labelwise amount:")
 			for key, val in self.label_dict.items():
@@ -355,11 +358,16 @@ class POSDataset(DatasetTemplate):
 		with open(os.path.join(data_path, "labels." + data_type), mode="r", encoding="utf-8") as f:
 			labels = f.readlines()
 		self.data_list = list()
+		self.label_count = {key: 0 for key, _ in POSData.LABEL_LIST.items()}
 		for i, sent, lab in zip(range(len(sentences)), sentences, labels):
 			if debug_level() == 0:
 				print("Read %4.2f%% of the dataset %s" % (100.0 * i / len(sentences), self.dataset_name), end="\r")
-			new_d = POSData(sentence=sent.replace("\n",""), pos_tags=[l for l in lab.replace("\n","").split(" ") if len(l)>0])
+			pos_tags = [l for l in lab.replace("\n","").split(" ") if len(l)>0]
+			new_d = POSData(sentence=sent.replace("\n",""), pos_tags=pos_tags)
 			self.data_list.append(new_d)
+			for p in pos_tags:
+				self.label_count[p] += 1
+		self.label_count = {POSData.LABEL_LIST[key]: val for key, val in self.label_count.items()}
 
 
 	def export_to_file(self, output_dir, suffix):
