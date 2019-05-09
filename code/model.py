@@ -6,7 +6,7 @@ import math
 
 # TODO: see which performs better
 # from allennlp.modules.elmo import Elmo, batch_to_ids
-from allennlp.commands.elmo import ElmoEmbedder
+# from allennlp.commands.elmo import ElmoEmbedder
 
 
 class NLIModel(nn.Module):
@@ -28,7 +28,7 @@ class NLIModel(nn.Module):
         self.model_params = model_params
         self._choose_encoder(model_type, model_params)
         self.classifier = NLIClassifier(model_params)
-        self.elmo = self.load_elmo(elmo_type)
+        # self.elmo = self.load_elmo(elmo_type)
 
         if torch.cuda.is_available():
             self.embeddings = self.embeddings.cuda()
@@ -68,39 +68,39 @@ class NLIModel(nn.Module):
         out = self.classifier(embed_s1, embed_s2, applySoftmax=applySoftmax)
         return out
 
-    def load_elmo(self, elmo_type):
-        if elmo_type not in ['small', 'medium', 'original']:
-            print("[!] WARNING: Unsupported ELMo size. Reverting to medium size")
-            elmo_type = 'medium'
-        if elmo_type == 'small':
-            options_file = 'elmo/' + elmo_type + '/elmo_2x1024_128_2048cnn_1xhighway_options.json'
-            weight_file = 'elmo/' + elmo_type + '/elmo_2x1024_128_2048cnn_1xhighway_weights.hdf5'
-        elif elmo_type == 'medium':
-            options_file = 'elmo/' + elmo_type + '/elmo_2x2048_256_2048cnn_1xhighway_options.json'
-            weight_file = 'elmo/' + elmo_type + '/elmo_2x2048_256_2048cnn_1xhighway_weights.hdf5'
-        elif elmo_type == 'original':
-            options_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json'
-            weight_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_weights.hdf5'
-        if torch.cuda.is_available():
-            print("=" * 50 + "\nLoaded CUDA ElmoEmbedder\n" + "=" * 50)
-            return ElmoEmbedder(options_file, weight_file, cuda_device=torch.cuda.current_device())
-        return ElmoEmbedder(options_file, weight_file)
+    # def load_elmo(self, elmo_type):
+    #     if elmo_type not in ['small', 'medium', 'original']:
+    #         print("[!] WARNING: Unsupported ELMo size. Reverting to medium size")
+    #         elmo_type = 'medium'
+    #     if elmo_type == 'small':
+    #         options_file = 'elmo/' + elmo_type + '/elmo_2x1024_128_2048cnn_1xhighway_options.json'
+    #         weight_file = 'elmo/' + elmo_type + '/elmo_2x1024_128_2048cnn_1xhighway_weights.hdf5'
+    #     elif elmo_type == 'medium':
+    #         options_file = 'elmo/' + elmo_type + '/elmo_2x2048_256_2048cnn_1xhighway_options.json'
+    #         weight_file = 'elmo/' + elmo_type + '/elmo_2x2048_256_2048cnn_1xhighway_weights.hdf5'
+    #     elif elmo_type == 'original':
+    #         options_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json'
+    #         weight_file = 'elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_weights.hdf5'
+    #     if torch.cuda.is_available():
+    #         print("=" * 50 + "\nLoaded CUDA ElmoEmbedder\n" + "=" * 50)
+    #         return ElmoEmbedder(options_file, weight_file, cuda_device=torch.cuda.current_device())
+    #     return ElmoEmbedder(options_file, weight_file)
         # return Elmo(options_file, weight_file, 1)
 
     def encode_sentence(self, words, lengths, dummy_input=False, debug=False):
         # Words is a tensor of size (batch_len, sentence_len)
 
         # Get list of sentences as a list of string token lists
-        str_words = []
-        for sentence_idx in range(words.size()[0]):
-            sentence = []
-            for word_idx in range(words.size()[1]):
-                w_ix = words[sentence_idx, word_idx].item()
-                if w_ix != 0:
-                    sentence.append(self.id2word[w_ix])
-                else:
-                    break
-            str_words.append(sentence)
+        # str_words = []
+        # for sentence_idx in range(words.size()[0]):
+        #     sentence = []
+        #     for word_idx in range(words.size()[1]):
+        #         w_ix = words[sentence_idx, word_idx].item()
+        #         if w_ix != 0:
+        #             sentence.append(self.id2word[w_ix])
+        #         else:
+        #             break
+        #     str_words.append(sentence)
 
         # Get word embeddings, which is a tensor of size (batch_len x sentence_len x word_embedding_len)
         word_embeds = self.embeddings(words)
@@ -112,14 +112,14 @@ class NLIModel(nn.Module):
         #     character_ids = character_ids.cuda()
         # elmo_embeds = self.elmo(character_ids)['elmo_representations'][0]
 
-        vectors = self.elmo.batch_to_embeddings(str_words)[0]
-        elmo_embeds = torch.cat((vectors[:, 1], vectors[:, 2]), 2)
+        # vectors = self.elmo.batch_to_embeddings(str_words)[0]
+        # elmo_embeds = torch.cat((vectors[:, 1], vectors[:, 2]), 2)
 
         # Combine the two embeddings
-        full_embeds = torch.cat((word_embeds, elmo_embeds), 2)
+        # full_embeds = torch.cat((word_embeds, elmo_embeds), 2)
 
         # Get sentence embeddings, which is a tensor of size (batch_len x sentence_embedding_len)
-        sent_embeds = self.encoder(full_embeds, lengths, dummy_input=dummy_input, debug=debug)
+        sent_embeds = self.encoder(word_embeds, lengths, dummy_input=dummy_input, debug=debug)
 
         return sent_embeds
 

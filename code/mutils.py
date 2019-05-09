@@ -82,15 +82,15 @@ def load_args(checkpoint_path):
 def args_to_params(args):
 	# Define model parameters
 	model_params = {
-		"embed_word_dim": 1324,  # fixme and next line
-		"embed_sent_dim": 1324,  # args.embed_dim,
+		"embed_word_dim": 300,  # fixme and next line
+		"embed_sent_dim": 300,  # args.embed_dim,
 		"fc_dropout": args.fc_dropout, 
 		"fc_dim": args.fc_dim,
 		"fc_nonlinear": args.fc_nonlinear,
 		"n_classes": 3
 	}
 	if args.model == NLIModel.AVERAGE_WORD_VECS:
-		model_params["embed_sent_dim"] = 1324  # fixme
+		model_params["embed_sent_dim"] = 300  # fixme
 
 	optimizer_params = {
 		"optimizer": args.optimizer,
