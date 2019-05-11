@@ -63,7 +63,8 @@ def args_to_params(args):
 		"optimizer": args.optimizer,
 		"lr": args.learning_rate,
 		"weight_decay": args.weight_decay,
-		"lr_decay_step": args.lr_decay,
+		"lr_decay_step": args.lr_decay_step,
+		"lr_decay_factor": args.lr_decay,
 		"lr_max_red_steps": args.lr_max_red_steps
 	}
 

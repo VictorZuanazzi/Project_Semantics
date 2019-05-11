@@ -9,8 +9,9 @@ import pickle
 import numpy as np
 from glob import glob
 
-from model import NLIModel
-from data import load_SNLI_datasets, load_SNLI_splitted_test, debug_level
+from task import create_task, TaskTemplate, MultiTaskSampler, SNLITask, MNLITask, SSTTask, VUATask
+from model import MultiTaskEncoder
+from data import DatasetHandler, debug_level
 from mutils import load_model, load_model_from_args, load_args, args_to_params, visualize_tSNE, get_transfer_datasets
 
 from tensorboardX import SummaryWriter
@@ -19,79 +20,116 @@ from sent_eval import perform_SentEval
 
 
 
-class SNLIEval:
+class MultiTaskEval:
 
-	def __init__(self, model, batch_size=64):
-		self.train_dataset, self.val_dataset, self.test_dataset, _, _, _ = load_SNLI_datasets(debug_dataset = False)
-		self.test_hard_dataset, self.test_easy_dataset = load_SNLI_splitted_test()
+	def __init__(self, model, tasks, batch_size=64):
 		self.model = model
+		self.tasks = tasks
 		self.batch_size = batch_size
 		self.accuracies = dict()
 
-	def eval(self, iteration=None, dataset=None, ret_pred_list=False):
-		if dataset is None:
-			dataset = self.val_dataset
-		self.model.eval()
-		number_batches = int(math.ceil(dataset.get_num_examples() * 1.0 / self.batch_size))
-		correct_preds = []
-		preds_list = []
-		for batch_ind in range(number_batches):
-			if debug_level() == 0:
-				print("Evaluation process: %4.2f%%" % (100.0 * batch_ind / number_batches), end="\r")
-			embeds, lengths, batch_labels = dataset.get_batch(self.batch_size, loop_dataset=False, toTorch=True, bidirectional=self.model.is_bidirectional())
-			preds = self.model(words_s1 = embeds[0], lengths_s1 = lengths[0], words_s2 = embeds[1], lengths_s2 = lengths[1], applySoftmax=True)
-			_, pred_labels = torch.max(preds, dim=-1)
-			preds_list += torch.squeeze(pred_labels).tolist()
-			correct_preds += torch.squeeze(pred_labels == batch_labels).tolist()
-		accuracy = sum(correct_preds) * 1.0 / len(correct_preds)
-		print("Evaluation accuracy: %4.2f%%" % (accuracy * 100.0))
-		print("Number of predictions: " + ", ".join([("class %i: %i" % (i, sum([j==i for j in preds_list]))) for i in range(3)]))
-		if iteration is not None:
-			self.accuracies[iteration] = accuracy
-		if not ret_pred_list:
-			return accuracy
-		else:
-			return accuracy, preds_list
 
-	def test_best_model(self, checkpoint_path, delete_others=False, run_standard_eval=True, run_training_set=False, run_sent_eval=True, run_extra_eval=True, light_senteval=True):
+	def dump_errors(self, checkpoint_path, output_file="mistakes.txt", task_name=SNLITask.NAME):
+		if task_name == SNLITask.NAME:
+			_, test_dataset, _ = DatasetHandler.load_SNLI_datasets()
+		elif task_name == MNLITask.NAME:
+			_, test_dataset, _ = DatasetHandler.load_MultiNLI_datasets()
+		else:
+			print("Unsupported task: " + str(task_name))
+			sys.exit(1)
+
+		evaluation_dict = load_model(checkpoint_path)["evaluation_dict"]
+		task_evaluation = evaluation_dict[max(evaluation_dict.keys())][task_name]
+		predictions = task_evaluation["predictions"]
+		labels = task_evaluation["labels"]
+
+		mistakes = [i for i, p, l in zip(range(len(predictions)), predictions.tolist(), labels.tolist()) if p != l]
+		print("Number of mistakes: " + str(len(mistakes)) + " | " + str(len(test_dataset.data_list)) + " (%4.2f%%)" % (len(mistakes)*100.0/len(test_dataset.data_list)))
+		print("Confusions:")
+		for l in set(labels):
+			for p in set(predictions):
+				if l == p:
+					continue
+				print("\t- Label %s, pred %s: %i" % (test_dataset.label_to_string(l), test_dataset.label_to_string(p), len([m for m in mistakes if predictions[m]==p and labels[m]==l])))
+		file_text = ""
+		for example_index in mistakes:
+			file_text += "-"*50 + "\n"
+			file_text += "Label: " + str(test_dataset.label_to_string(labels[example_index])) + ", Prediction: " + str(test_dataset.label_to_string(predictions[example_index])) + "\n"
+			file_text += "Premise: " + " ".join(test_dataset.data_list[example_index].premise_words) + "\n"
+			file_text += "Hypothesis: " + " ".join(test_dataset.data_list[example_index].hypothesis_words) + "\n"
+		with open(output_file, "w") as f:
+			f.write(file_text)
+
+
+
+	def test_best_model(self, checkpoint_path, main_task=None, delete_others=False, run_standard_eval=True, run_training_set=False, run_sent_eval=True, run_extra_eval=True, light_senteval=True, final_eval_dict=None):
+		
+		if final_eval_dict is None:
+			final_eval_dict = dict()
+
+		if main_task is None:
+			for t in self.tasks:
+				self.test_best_model(checkpoint_path=checkpoint_path, main_task=t, delete_others=delete_others, 
+									 run_standard_eval=run_standard_eval, run_training_set=run_training_set, 
+									 run_sent_eval=False, run_extra_eval=run_extra_eval, 
+									 light_senteval=True, final_eval_dict=final_eval_dict)
+			main_task = self.tasks[0]
+		else:
+			print("Evaluating with main task " + main_task.name)
+
+		def iter_to_file(iteration):
+			return os.path.join(checkpoint_path, "checkpoint_" + str(iteration).zfill(7) + ".tar")
+
 		final_dict = load_model(checkpoint_path)
-		max_acc = max(final_dict["eval_accuracies"])
-		best_epoch = final_dict["eval_accuracies"].index(max_acc) + 1
-		s = "Best epoch: " + str(best_epoch) + " with accuracy %4.2f%%" % (max_acc * 100.0) + "\n"
+		best_acc, best_iter = -1, -1
+		for eval_iter, eval_dict in final_dict["evaluation_dict"].items():
+			if main_task.eval_metric(eval_dict[main_task.name]) > best_acc and os.path.isfile(iter_to_file(eval_iter)):
+				best_iter = eval_iter
+				best_acc = main_task.eval_metric(eval_dict[main_task.name])
+
+		s = "Best iteration: " + str(best_iter) + " with metric value %4.2f%%" % (best_acc * 100.0) + " on task " + str(main_task.name) + "\n"
 		print(s)
 
-		best_checkpoint_path = os.path.join(checkpoint_path, "checkpoint_" + str(best_epoch).zfill(3) + ".tar")
-		load_model(best_checkpoint_path, model=self.model)
+		best_checkpoint_path = iter_to_file(best_iter)
+		load_model(best_checkpoint_path, model=self.model, tasks=self.tasks)
 		for param in self.model.parameters():
 			param.requires_grad = False
+		self.model.eval()
 
-		if run_standard_eval:
+		if run_standard_eval and (main_task.name not in final_eval_dict):
+			acc_dict = {'train' : dict(), 'val' : dict(), 'test' : dict()}
 			if run_training_set:
 				# For training, we evaluate on the very last checkpoint as we expect to have the best training performance there
-				load_model(checkpoint_path, model=self.model)
-				train_acc = self.eval(dataset=self.train_dataset)
+				load_model(checkpoint_path, model=self.model, tasks=self.tasks)
+				for t in self.tasks:
+					t_acc, _ = t.eval(dataset=t.train_dataset)
+					acc_dict['train'][t.name] = t_acc
 				# Load best checkpoint again
-				load_model(best_checkpoint_path, model=self.model)
-			val_acc = self.eval(dataset=self.val_dataset)
-			test_acc, pred_list = self.eval(dataset=self.test_dataset, ret_pred_list=True)
-			if abs(val_acc - max_acc) > 0.0005:
-				print("[!] ERROR: Found different accuracy then reported in the final state dict. Difference: %f" % (100.0 * abs(val_acc - max_acc)) ) 
-				return 
-			np.save(os.path.join(checkpoint_path, "test_predictions.npy"), np.array(pred_list))
-			if run_training_set:
-				s += ("Train accuracy: %4.2f%%" % (train_acc * 100.0)) + "\n"
-			s += ("Val accuracy: %4.2f%%" % (val_acc * 100.0)) + "\n"
-			s += ("Test accuracy: %4.2f%%" % (test_acc * 100.0)) + "\n"
+				load_model(best_checkpoint_path, model=self.model, tasks=self.tasks)
+			
+			for t in self.tasks:
+				val_acc, detailed_val_acc = t.eval(dataset=t.val_dataset)
+				if t.name == main_task.name and abs(main_task.eval_metric(detailed_val_acc) - best_acc) > 0.0005:
+					print("[!] ERROR: Found different accuracy then reported in the final state dict. Difference: %f" % (100.0 * abs(val_acc - max_acc)) ) 
+					return 
 
-			with open(os.path.join(checkpoint_path, "evaluation.txt"), "w") as f:
-				f.write(s)
+				test_acc, detailed_acc = t.eval(dataset=t.test_dataset)
+				
+				acc_dict['val'][t.name] = val_acc
+				acc_dict['test'][t.name] = test_acc 
+				acc_dict['test'][t.name + "_detailed"] = detailed_acc
+				
+			final_eval_dict[main_task.name] = acc_dict
 
-		if run_extra_eval:
-			test_easy_acc = self.eval(dataset=self.test_easy_dataset)
-			test_hard_acc = self.eval(dataset=self.test_hard_dataset)
-			s = "Test easy accuracy: %4.2f%%\n Test hard accuracy: %4.2f%%\n" % (test_easy_acc*100.0, test_hard_acc*100.0)
-			with open(os.path.join(checkpoint_path, "extra_evaluation.txt"), "w") as f:
-				f.write(s)
+			with open(os.path.join(checkpoint_path, "evaluation.pik"), "wb") as f:
+				pickle.dump(final_eval_dict, f)
+
+		# if run_extra_eval:
+		# 	test_easy_acc = self.eval(dataset=self.test_easy_dataset)
+		# 	test_hard_acc = self.eval(dataset=self.test_hard_dataset)
+		# 	s = "Test easy accuracy: %4.2f%%\n Test hard accuracy: %4.2f%%\n" % (test_easy_acc*100.0, test_hard_acc*100.0)
+		# 	with open(os.path.join(checkpoint_path, "extra_evaluation.txt"), "w") as f:
+		# 		f.write(s)
 
 		if run_sent_eval:
 			self.model.eval()
@@ -106,7 +144,7 @@ class SNLIEval:
 		model_results = dict()
 
 		for i in range(len(checkpoint_files)):
-			checkpoint_dict = load_model(checkpoint_files[i], model=self.model)
+			checkpoint_dict = load_model(checkpoint_files[i], model=self.model, tasks=self.tasks)
 			epoch = checkpoint_dict["epoch"]
 			model_results[epoch] = dict()
 			model_results[epoch]["checkpoint_file"] = checkpoint_files[i]
@@ -188,20 +226,21 @@ if __name__ == '__main__':
 	transfer_datasets = get_transfer_datasets()
 
 	for model_checkpoint in model_list:
-		if not os.path.isfile(os.path.join(model_checkpoint, "results.txt")):
-			print("Skipped " + str(model_checkpoint) + " because of missing results file." )
-			continue
+		# if not os.path.isfile(os.path.join(model_checkpoint, "results.txt")):
+		# 	print("Skipped " + str(model_checkpoint) + " because of missing results file." )
+		# 	continue
 		
-		skip_standard_eval = not args.overwrite and os.path.isfile(os.path.join(model_checkpoint, "evaluation.txt"))
+		skip_standard_eval = not args.overwrite and os.path.isfile(os.path.join(model_checkpoint, "evaluation.pik"))
 		skip_sent_eval = not args.overwrite and os.path.isfile(os.path.join(model_checkpoint, "sent_eval.pik"))
 		skip_extra_eval = (not args.overwrite and os.path.isfile(os.path.join(model_checkpoint, "extra_evaluation.txt")))
 
 		try:
-			model = load_model_from_args(load_args(model_checkpoint))
-			evaluater = SNLIEval(model)
+			model, tasks = load_model_from_args(load_args(model_checkpoint))
+			evaluater = MultiTaskEval(model, tasks)
+			evaluater.dump_errors(model_checkpoint, task_name=evaluater.tasks[0].name)
 			evaluater.test_best_model(model_checkpoint, 
 									  run_standard_eval=(not skip_standard_eval), 
-									  run_training_set=True,
+									  run_training_set=False,
 									  run_sent_eval=(not skip_sent_eval),
 									  run_extra_eval=(not skip_extra_eval),
 									  light_senteval=(not args.full_senteval))

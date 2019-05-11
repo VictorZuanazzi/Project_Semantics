@@ -1,2 +1,9 @@
+code/temp_VUAdata\.py
 
-Data sets/
+code/Playing with datasets\.ipynb
+
+code/__pycache__/
+
+code/\.ipynb_checkpoints/
+
+data/
