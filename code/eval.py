@@ -82,6 +82,9 @@ class MultiTaskEval:
 
 		final_dict = load_model(checkpoint_path)
 		best_acc, best_iter = -1, -1
+		with open(os.path.join(checkpoint_path, "test.pik"), "wb") as f:
+			pickle.dump(final_dict["evaluation_dict"], f)
+		sys.exit(1)
 		for eval_iter, eval_dict in final_dict["evaluation_dict"].items():
 			if main_task.eval_metric(eval_dict[main_task.name]) > best_acc and os.path.isfile(iter_to_file(eval_iter)):
 				best_iter = eval_iter
@@ -108,12 +111,12 @@ class MultiTaskEval:
 				load_model(best_checkpoint_path, model=self.model, tasks=self.tasks)
 			
 			for t in self.tasks:
-				val_acc, detailed_val_acc = t.eval(dataset=t.val_dataset)
-				if t.name == main_task.name and abs(main_task.eval_metric(detailed_val_acc) - best_acc) > 0.0005:
-					print("[!] ERROR: Found different accuracy then reported in the final state dict. Difference: %f" % (100.0 * abs(val_acc - max_acc)) ) 
+				val_acc, detailed_val_acc = t.eval(dataset=t.val_dataset, add_predictions=True)
+				if t.name == main_task.name and abs(main_task.eval_metric(detailed_val_acc) - best_acc) > 0.001:
+					print("[!] ERROR: Found (significant) different accuracy then reported in the final state dict. Difference: %f" % (100.0 * abs(main_task.eval_metric(detailed_val_acc) - best_acc)) ) 
 					return 
 
-				test_acc, detailed_acc = t.eval(dataset=t.test_dataset)
+				test_acc, detailed_acc = t.eval(dataset=t.test_dataset, add_predictions=True)
 				
 				acc_dict['val'][t.name] = val_acc
 				acc_dict['test'][t.name] = test_acc 
@@ -220,6 +223,7 @@ if __name__ == '__main__':
 	parser.add_argument("--overwrite", help="Whether evaluations should be re-run if there already exists an evaluation file.", action="store_true")
 	parser.add_argument("--visualize_embeddings", help="Whether the embeddings of the model should be visualized or not", action="store_true")
 	parser.add_argument("--full_senteval", help="Whether to run SentEval with the heavy setting or not", action="store_true")
+	parser.add_argument("--no_senteval", help="Whether to skip SentEval or not", action="store_true")
 	# parser.add_argument("--all", help="Evaluating all experiments in the checkpoint folder (specified by checkpoint path) if not already done", action="store_true")
 	args = parser.parse_args()
 	model_list = sorted(glob(args.checkpoint_path))
@@ -231,7 +235,7 @@ if __name__ == '__main__':
 		# 	continue
 		
 		skip_standard_eval = not args.overwrite and os.path.isfile(os.path.join(model_checkpoint, "evaluation.pik"))
-		skip_sent_eval = not args.overwrite and os.path.isfile(os.path.join(model_checkpoint, "sent_eval.pik"))
+		skip_sent_eval = args.no_senteval or (not args.overwrite and os.path.isfile(os.path.join(model_checkpoint, "sent_eval.pik")))
 		skip_extra_eval = (not args.overwrite and os.path.isfile(os.path.join(model_checkpoint, "extra_evaluation.txt")))
 
 		try:

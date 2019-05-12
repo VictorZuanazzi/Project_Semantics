@@ -429,7 +429,7 @@ def create_StackedLSTM_from_params(model_params, bidirectional=False):
 	else:
 		assert len(projection_dims) == (len(hidden_dims) - 1), \
 			   "[!] WARNING: The number of projection layers/dimensions (%i) do not fit to the number of hidden dimensions (%i) that are specified." % (len(projection_dims), len(hidden_dims))
-	print("Projection dims: " + str(projection_dims))
+	
 	projection_dropout = get_param_val(model_params, "proj_dropout", 0.0)
 	input_dropout = get_param_val(model_params, "input_dropout", 0.0)
 	skip_connections = not get_param_val(model_params, "no_skip_connections", False)

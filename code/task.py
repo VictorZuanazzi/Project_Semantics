@@ -66,7 +66,7 @@ class TaskTemplate:
 		raise NotImplementedError
 
 
-	def eval(self, dataset=None, batch_size=64):
+	def eval(self, dataset=None, batch_size=64, add_predictions=False):
 		# Default: if no dataset is specified, we use validation dataset
 		if dataset is None:
 			assert self.val_dataset is not None, "[!] ERROR: Validation dataset not loaded. Please load the dataset beforehand for evaluation."
@@ -101,9 +101,11 @@ class TaskTemplate:
 		label_list = label_list[label_list >= 0]
 		accuracy = np.sum(preds_list == label_list) * 1.0 / preds_list.shape[0]
 		detailed_acc = {"accuracy": accuracy, 
-						"predictions": preds_list, 
-						"labels": label_list,
 						"class_scores": dict()}
+
+		if add_predictions:
+			detailed_acc["predictions"] = preds_list
+			detailed_acc["labels"] = label_list
 
 		print("-"*75)
 		print("Evaluation accuracy: %4.2f%%" % (accuracy * 100.0))
@@ -229,14 +231,14 @@ class MultiTaskSampler:
 	def evaluate_all(self):
 		print("Evaluation...")
 		accuracy_dict = dict()
-		reached_new_opt = False
+		reached_new_opt = {}
 		for t in self.tasks:
 			acc, detailed_acc = t.eval()
 			print("Task " + t.name + ": %4.2f%%" % (acc*100.0))
+			reached_new_opt[t.name] = (acc > self.highest_eval_accs[t.name])
 			if acc > self.highest_eval_accs[t.name]:
 				self.highest_eval_accs[t.name] = acc
 				print("Highest accuracy so far for task " + t.name)
-				reached_new_opt = True
 			accuracy_dict[t.name] = detailed_acc
 		return accuracy_dict, reached_new_opt
 

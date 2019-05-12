@@ -83,7 +83,13 @@ class MultiTaskTrain:
 		checkpoint_dict = self.load_recent_model()
 		start_iter = get_dict_val(checkpoint_dict, "iteration", 0)
 		evaluation_dict = get_dict_val(checkpoint_dict, "evaluation_dict", dict())
-		
+		self.multitask_sampler.highest_eval_accs = get_dict_val(checkpoint_dict, "highest_eval_accs", {t.name: -1 for t in self.tasks})
+		best_save_dict = get_dict_val(checkpoint_dict, "best_save_dict", {t.name: None for t in self.tasks})
+		last_save = None if start_iter == 0 else self.get_checkpoint_filename(start_iter)
+		if last_save is not None and not os.path.isfile(last_save):
+			print("[!] WARNING: Could not find last checkpoint file specified as " + last_save)
+			last_save = None
+
 		if enable_tensorboard:
 			writer = SummaryWriter(self.checkpoint_path)
 		else:
@@ -93,12 +99,14 @@ class MultiTaskTrain:
 		def save_train_model(iteration, only_weights=False):
 			checkpoint_dict = {
 				"evaluation_dict": evaluation_dict,
-				"iteration": iteration
+				"iteration": iteration,
+				"best_save_dict": best_save_dict,
+				"highest_eval_accs": self.multitask_sampler.highest_eval_accs
 			}
 			if only_weights:
 				self.save_model(iteration, checkpoint_dict, save_optimizer=False)
 			else:
-				self.save_model(iteration, checkpoint_dict)
+				self.save_model(iteration, checkpoint_dict, save_optimizer=True)
 
 		def export_weight_parameters(iteration):
 			# Export weight distributions
@@ -158,16 +166,31 @@ class MultiTaskTrain:
 						for t in self.tasks:
 							t.add_to_summary(writer, index_iter+1)
 
-					if index_iter > 10 * eval_freq and reached_new_opt:
-						save_train_model(index_iter+1)
+					for task_name, task_checkpoint in best_save_dict.items():
+						if reached_new_opt[task_name]:
+							best_save_dict[task_name] = self.get_checkpoint_filename(index_iter+1)
+							if not os.path.isfile(best_save_dict[task_name]):
+								print("Saving model at iteration " + str(index_iter+1))
+								save_train_model(index_iter+1)
+								if last_save is not None and os.path.isfile(last_save) and not any([val == last_save for _, val in best_save_dict.items()]):
+									os.remove(last_save)
+								last_save = self.get_checkpoint_filename(index_iter+1)
+							if task_checkpoint is not None and not any([task_checkpoint == tcheck for _, tcheck in best_save_dict.items()]):
+								print("Removing model checkpoint at " + str(task_checkpoint))
+								os.remove(task_checkpoint)
 
 				# Saving
-				if (index_iter + 1) % save_freq == 0:
+				if (index_iter + 1) % save_freq == 0 and not os.path.isfile(self.get_checkpoint_filename(index_iter+1)):
 					save_train_model(index_iter + 1)
+					if last_save is not None and os.path.isfile(last_save) and not any([val == last_save for _, val in best_save_dict.items()]):
+						os.remove(last_save)
+					last_save = self.get_checkpoint_filename(index_iter+1)
 
 		except KeyboardInterrupt:
 			print("User keyboard interrupt detected. Saving model at step %i..." % (index_iter))
 			save_train_model(index_iter + 1)
+			if last_save is not None and os.path.isfile(last_save) and not any([val == last_save for _, val in best_save_dict.items()]):
+				os.remove(last_save)
 
 		with open(os.path.join(self.checkpoint_path, "results.txt"), "w") as f:
 			for eval_iter, eval_dict in evaluation_dict.items():
@@ -180,8 +203,13 @@ class MultiTaskTrain:
 			writer.close()
 
 
-	def save_model(self, iteration, add_param_dict, save_embeddings=False, save_optimizer=True):
+	def get_checkpoint_filename(self, iteration):
 		checkpoint_file = os.path.join(self.checkpoint_path, 'checkpoint_' + str(iteration).zfill(7) + ".tar")
+		return checkpoint_file
+
+
+	def save_model(self, iteration, add_param_dict, save_embeddings=False, save_optimizer=True):
+		checkpoint_file = self.get_checkpoint_filename(iteration)
 		model_dict = self.model.state_dict()
 		if not save_embeddings:
 			model_dict = {k:v for k,v in model_dict.items() if (not k.startswith("embeddings") or v.requires_grad)}

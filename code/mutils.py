@@ -374,24 +374,19 @@ def results_to_table():
 	print(s)
 
 def result_to_latex():
-	_, _, test_dataset = DatasetHandler.load_SNLI_datasets(debug_dataset = True)
-	test_labels = np.array([d.label for d in test_dataset.data_list])
-	result_folder = sorted(glob("results/*"))
-	s = " & ".join(["\\textbf{%s}" % (column_name) for column_name in ["Model","Train", "Val", "Test mic", "Test mac"]]) + "\\\\\n\\hline\n"
+	result_folder = sorted(glob("checkpoints/MNLI_VUAseq_POS*"))
+	s = " & ".join(["\\textbf{%s}" % (column_name) for column_name in ["Model","Val", "Test"]]) + "\\\\\n\\hline\n"
 	for res_dir in result_folder:
+		if not os.path.isfile(os.path.join(res_dir, "evaluation.pik")):
+			continue
 		s += res_dir.split("/")[-1] + " & "
-		with open(os.path.join(res_dir, "evaluation.txt"), "r") as f:
-			lines = f.readlines()
+		with open(os.path.join(res_dir, "evaluation.pik"), "rb") as f:
+			eval_dict = pickle.load(f)
 
-		for i in [1, 2, 3]:
-			s += lines[i].split(" ")[-1].replace("\n","") + " & "
-
-		preds = np.load(os.path.join(res_dir, "test_predictions.npy"))
-		macro_acc = get_macro_accuracy(preds, test_labels)
-		s += "%4.2f%% " % (100.0 * macro_acc)
+		s += "%4.2f\\%s %s %4.2f\\%s" % (eval_dict[MNLITask.NAME]["val"][MNLITask.NAME]*100.0, "%", "&", eval_dict[MNLITask.NAME]["test"][MNLITask.NAME]*100.0, "%")
 
 		s += "\\\\\n"
-	s = s.replace("%", "\\%").replace("_"," ")
+	s = s.replace("_"," ")
 	print(s)
 
 def sent_eval_to_table():
@@ -557,9 +552,9 @@ if __name__ == '__main__':
 	# results_to_table()
 	# print("\n\n")
 	# sent_eval_to_table()
-	# result_to_latex()
+	result_to_latex()
 	# print("\n\n")
-	sent_eval_to_latex()
+	# sent_eval_to_latex()
 	# print("\n\n")
 	# imagecap_to_latex()
 	# print("\n\n")
