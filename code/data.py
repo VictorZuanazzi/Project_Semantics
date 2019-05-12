@@ -72,7 +72,7 @@ class DatasetHandler:
 	@staticmethod
 	def load_MultiNLI_datasets(debug_dataset=False):
 		if DatasetHandler.MNLI_DATASETS is None:
-			DatasetHandler.MNLI_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, data_path="./data/multinli_1.0", data_types=['train', 'dev.matched', 'dev.mismatched'], debug_dataset=debug_dataset, name="MultiNLI")
+			DatasetHandler.MNLI_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, data_path="../data/multinli_1.0", data_types=['train', 'dev.matched', 'dev.mismatched'], debug_dataset=debug_dataset, name="MultiNLI")
 		return DatasetHandler.MNLI_DATASETS[0], DatasetHandler.MNLI_DATASETS[1], DatasetHandler.MNLI_DATASETS[2]
 
 	@staticmethod
@@ -102,7 +102,7 @@ class DatasetHandler:
 	@staticmethod
 	def load_POS_MNLI_datasets(debug_dataset=False):
 		if DatasetHandler.POS_MNLI_DATASETS is None:
-			DatasetHandler.POS_MNLI_DATASETS = DatasetHandler._load_all_type_datasets(POSDataset, data_path="./data/POS/", data_types=['train_mnli', 'dev_mnli', 'test_mnli'], name="POS_MNLI", debug_dataset=debug_dataset)
+			DatasetHandler.POS_MNLI_DATASETS = DatasetHandler._load_all_type_datasets(POSDataset, data_path="../data/POS/", data_types=['train_mnli', 'dev_mnli', 'test_mnli'], name="POS_MNLI", debug_dataset=debug_dataset)
 		return DatasetHandler.POS_MNLI_DATASETS[0], DatasetHandler.POS_MNLI_DATASETS[1], DatasetHandler.POS_MNLI_DATASETS[2]
 
 
@@ -263,7 +263,7 @@ class DatasetTemplate:
 class SNLIDataset(DatasetTemplate):
 
 	# Data type either train, dev or test
-	def __init__(self, data_type, data_path="./data/snli_1.0", add_suffix=True, shuffle_data=True, name="SNLI"):
+	def __init__(self, data_type, data_path="../data/snli_1.0", add_suffix=True, shuffle_data=True, name="SNLI"):
 		super(SNLIDataset, self).__init__(data_type, shuffle_data, name=name)
 		if data_path is not None:
 			self.load_data(data_path, data_type)
@@ -314,7 +314,7 @@ class SSTDataset(DatasetTemplate):
 	}
 
 	# Data type either train, dev or test
-	def __init__(self, data_type, data_path="./data/SST", add_suffix=True, shuffle_data=True):
+	def __init__(self, data_type, data_path="../data/SST", add_suffix=True, shuffle_data=True):
 		super(SSTDataset, self).__init__(data_type, shuffle_data, name="SST")
 		if data_path is not None:
 			self.load_data(data_path, data_type)
@@ -342,7 +342,7 @@ class SSTDataset(DatasetTemplate):
 
 class POSDataset(DatasetTemplate):
 
-	def __init__(self, data_type, data_path="./data/POS/", shuffle_data=True, name="POS"):
+	def __init__(self, data_type, data_path="../data/POS/", shuffle_data=True, name="POS"):
 		super(POSDataset, self).__init__(data_type, shuffle_data, name=name)
 		if data_path is not None:
 			self.load_data(data_path, data_type)
@@ -385,7 +385,7 @@ class POSDataset(DatasetTemplate):
 class VUADataset(DatasetTemplate):
 
 	# Data type either train, dev or test
-	def __init__(self, data_type, data_path="./data/VUA/", shuffle_data=True):
+	def __init__(self, data_type, data_path="../data/VUA/", shuffle_data=True):
 		"""Initializes the VUA dataset.
 		inputs:
 		data_type: (srt), chose between the datastes 'train', 'dev', 'test'.
@@ -492,7 +492,7 @@ class VUADataset(DatasetTemplate):
 class VUASeqDataset(DatasetTemplate):
 
 	# Data type either train, dev or test
-	def __init__(self, data_type, data_path="./data/VUAsequence/", shuffle_data=True):
+	def __init__(self, data_type, data_path="../data/VUAsequence/", shuffle_data=True):
 		"""Initializes the VUA sequence dataset.
 		inputs:
 		data_type: (srt), chose between the datastes 'train', 'dev', 'test'.
@@ -589,7 +589,7 @@ class VUASeqDataset(DatasetTemplate):
 class WiCDataset(DatasetTemplate):
 
 	# Data type either train, dev or test
-	def __init__(self, data_type, data_path="./data/WiC_dataset/", shuffle_data=True):
+	def __init__(self, data_type, data_path="../data/WiC_dataset/", shuffle_data=True):
 		"""Initializes the Word in Context dataset.
 		inputs:
 		data_type: (srt), chose between the datastes 'train', 'dev', 'test'.
