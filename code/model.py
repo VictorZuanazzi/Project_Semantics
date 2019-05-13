@@ -109,9 +109,6 @@ class NLIModel(nn.Module):
 			character_ids = character_ids.cuda()
 		elmo_embeds = self.elmo(character_ids)['elmo_representations'][0]
 
-		print("words", word_embeds.shape)
-		print("elmo", elmo_embeds.shape)
-
 		# Combine the two embeddings
 		full_embeds = torch.cat((word_embeds, elmo_embeds), 2)
 
