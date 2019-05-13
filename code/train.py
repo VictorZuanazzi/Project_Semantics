@@ -175,7 +175,7 @@ class MultiTaskTrain:
 								if last_save is not None and os.path.isfile(last_save) and not any([val == last_save for _, val in best_save_dict.items()]):
 									os.remove(last_save)
 								last_save = self.get_checkpoint_filename(index_iter+1)
-							if task_checkpoint is not None and not any([task_checkpoint == tcheck for _, tcheck in best_save_dict.items()]):
+							if task_checkpoint is not None and os.path.isfile(task_checkpoint) and not any([task_checkpoint == tcheck for _, tcheck in best_save_dict.items()]):
 								print("Removing model checkpoint at " + str(task_checkpoint))
 								os.remove(task_checkpoint)
 
