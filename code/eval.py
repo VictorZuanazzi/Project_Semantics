@@ -82,9 +82,7 @@ class MultiTaskEval:
 
 		final_dict = load_model(checkpoint_path)
 		best_acc, best_iter = -1, -1
-		with open(os.path.join(checkpoint_path, "test.pik"), "wb") as f:
-			pickle.dump(final_dict["evaluation_dict"], f)
-		sys.exit(1)
+		
 		for eval_iter, eval_dict in final_dict["evaluation_dict"].items():
 			if main_task.eval_metric(eval_dict[main_task.name]) > best_acc and os.path.isfile(iter_to_file(eval_iter)):
 				best_iter = eval_iter
