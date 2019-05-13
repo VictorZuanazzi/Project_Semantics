@@ -54,55 +54,86 @@ class WIC:
         v = torch.index_select(sent2_encoded, dim=0, index = bins2 + batch_p2)
         
         return u, v
+    
+    
+    def threshold_evaluator(self,u,v,batch_labels):
+                
+        u = u.unsqueeze(dim=1)
+        v = v.unsqueeze(dim=2)
+        cos_sim = torch.bmm(u,v).squeeze()
 
-    def train(self, iteration=None, dataset=None, ret_pred_list=False):
+        min_val = torch.min(cos_sim)
+        max_val = torch.max(cos_sim)
         
-        # encoder in eval mode and classifier in train mode
+        best_acc = 0
+        best_split = min_val.item()
+        
+        print("\nMinimum cosin similarity value = {}".format(min_val.item()))
+        print("Maximum cosin similarity value = {}\n".format(max_val.item()))
+        
+        for iter in torch.arange(min_val, max_val, step =0.02):
+            preds = (cos_sim>iter).float()
+            correct = (preds == batch_labels.float()).float().sum()
+            acc = correct/len(preds)
+            if acc> best_acc:
+                best_acc = acc.item()
+                best_split = iter
+                print("New best accuracy = {:.4f}, Split = {:.4f}".format(best_acc, best_split))
+        print("="*70 + "\nBest accuracy found = {:.4f}, Best split found = {:.4f}".format(best_acc, best_split)
+              + "\n"+"="*70)
+    
+    
+
+    
+    def mlp_evaluator(self):
         self.encoder.eval()
         self.classifier.train()
-        
-        l_rate = 2e-3
-               
+
+        l_rate = args.lr
+
         optimizer = torch.optim.Adam(self.classifier.parameters(), lr = l_rate)
         criterion = nn.BCELoss(reduction = 'mean') # reduction = sum/mean??
         
         train_dataset = self.train_dataset
         val_dataset = self.val_dataset
-        
+
         number_batches_train = int(math.ceil(train_dataset.get_num_examples() * 1.0 / self.batch_size))
-        number_batches_val = int(math.ceil(val_dataset.get_num_examples() * 1.0 / self.batch_size))        
+        number_batches_val = int(math.ceil(val_dataset.get_num_examples() * 1.0 / self.batch_size))
         
-        print("Number of train batches = ", number_batches_train)
+        print("\nNumber of train batches = ", number_batches_train)
         print("Number of val batches = ", number_batches_val)
-        
+
         preds_list = []
         loss_list = []
         accuracy = []
         dev_accuracy = []
         prev_dev = 0
-       
-        
-        for epoch in range(10):
+
+        for epoch in range(50):
+            if l_rate < 1e-6:
+                print("Termination conditon reached!")
+                break
+            
+            self.classifier.train()
             for batch_ind in range(number_batches_train):
                 self.classifier.train()
-               
+
                 # get batch of data
                 embeds, lengths, batch_labels, batch_p1, batch_p2 = train_dataset.get_batch(self.batch_size, loop_dataset=False, 
                                                                                             toTorch=True)
-                
-                
+
+
                 # encode the sentences batch
                 u, v = self.get_target_embed(embeds,lengths, batch_p1, batch_p2)
-               
+
+
                 input_features = torch.cat((u,v), dim=1)
-#                 cos_sim = torch.mm(u.permute(0,1), v.permute(1,0)).squeeze()
-#                 preds = cos_sim/torch.sum(cos_sim)
 
                 # get predictions
                 out = self.classifier(input_features)
-          
 
-                # correct preds
+
+                # accuracy calculation
                 output = (out>0.5).float()
                 correct = (output.squeeze() == batch_labels.float()).float().sum()
                 acc = correct/len(output)
@@ -111,21 +142,20 @@ class WIC:
                 # calculate loss
                 loss = criterion(out[:,0], batch_labels.float())
                 loss_list.append(loss.item())
-                
-#                 a = list(self.classifier.parameters())[0].clone()
-                
+                a = list(self.classifier.parameters())[0].clone()
+
                 # back prop steps
                 loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
-#                 b = list(self.classifier.parameters())[0].clone()
-                
+                b = list(self.classifier.parameters())[0].clone()
+
 #                 print("Params equal = ", torch.equal(a,b))
-            
-            # Evaluate on dev set
+
+            # Evaluate on dev set after every epoch
             for batch_ind in range(number_batches_val):
                 self.classifier.eval()
-                
+
                 embeds, lengths, batch_labels, batch_p1, batch_p2 = val_dataset.get_batch(self.batch_size, loop_dataset=False, 
                                                                                             toTorch=True)
                 u,v = self.get_target_embed(embeds, lengths, batch_p1, batch_p2)
@@ -136,23 +166,67 @@ class WIC:
                 acc = correct/len(output)
                 dev_accuracy.append(acc.item())
 
-            
-            print("Epoch: {}/10,  Train accuracy = {:.2f}, Train Loss = {:.4f}, Val accuracy = {:.2f}".format(epoch, sum(accuracy)/len(accuracy), sum(loss_list)/len(loss_list), sum(dev_accuracy)/len(dev_accuracy)))
+
+            print("Epoch: {}/50,  Train accuracy = {:.4f}, Train Loss = {:.4f}, Val accuracy = {:.4f}".format(epoch, sum(accuracy)/len(accuracy)*100, sum(loss_list)/len(loss_list), sum(dev_accuracy)/len(dev_accuracy)*100))
             current_dev = sum(dev_accuracy)/len(dev_accuracy)
             if prev_dev > current_dev:
-                l_rate = l_rate*0.3
+                l_rate = l_rate*0.25
                 print("Reduced learning rate to: ", l_rate)
             prev_dev = current_dev
-            
-        print("Training Done")
 
+        print("Training Done")
+        
+        
+
+    def WIC_main(self, iteration=None, dataset=None, ret_pred_list=False):
+        
+        # encoder in eval mode and classifier in train mode
+        self.encoder.eval()
+        self.classifier.train()
+       
+        
+        train_dataset = self.train_dataset
+        val_dataset = self.val_dataset
+         
+       
+        if args.val_type == 'threshold':
+            
+            print("="*70 + "\n\t\t\tTraining set\n"+ "="*70)
+            embeds, lengths, batch_labels, batch_p1, batch_p2 = train_dataset.get_batch(train_dataset.get_num_examples(), loop_dataset=False, 
+                                                                                            toTorch=True)
+                
+            print("\n---------------Getting Target Embeddings--------------")
+            # encode the sentences batch
+            u, v = self.get_target_embed(embeds,lengths, batch_p1, batch_p2)
+            print("\n---------------Target Embeddings retrieved--------------")
+            self.threshold_evaluator(u,v,batch_labels)
+            
+            print("="*70 + "\n\t\t\tValidation set\n"+ "="*70)
+            embeds, lengths, batch_labels, batch_p1, batch_p2 = val_dataset.get_batch(train_dataset.get_num_examples(), loop_dataset=False, 
+                                                                                            toTorch=True)
+                
+            print("\n---------------Getting Target Embeddings--------------")
+            # encode the sentences batch
+            u, v = self.get_target_embed(embeds,lengths, batch_p1, batch_p2)
+            print("\n---------------Target Embeddings retrieved--------------")
+            self.threshold_evaluator(u,v,batch_labels)
+            
+            
+        
+        elif args.val_type == 'mlp':
+            
+            self.mlp_evaluator()
+            
+        else:
+            print("Invalid Evaluator!! Choose --mlp-- or --threshold--")
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint_path", help="Folder(name) where checkpoints are saved. If it is a regex expression, all experiments are evaluated", type=str, default = './checkpoints')
     parser.add_argument("--overwrite", help="Whether evaluations should be re-run if there already exists an evaluation file.", action="store_true")
     parser.add_argument("--visualize_embeddings", help="Whether the embeddings of the model should be visualized or not", action="store_true")
-    parser.add_argument("--full_senteval", help="Whether to run SentEval with the heavy setting or not", action="store_true")
+    parser.add_argument("--val_type", help="Whether to run threshold or MLP eval (threshold or mlp)", type = str, default = 'mlp')
+    parser.add_argument("--lr", help="Learning rate (for MLP evaluation)", type = float, default = 2e-3)
     args = parser.parse_known_args()[0]
     model_list = sorted(glob(args.checkpoint_path))
 
@@ -166,4 +240,4 @@ if __name__ == '__main__':
             print(e)
             continue
         wic = WIC(model)
-        wic.train()
+        wic.WIC_main()
