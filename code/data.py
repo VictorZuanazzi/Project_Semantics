@@ -71,7 +71,9 @@ def load_word2vec_from_file(word_file="small_glove_words.txt", numpy_file="small
 	with open(word_file, "r") as f:
 		for i, l in enumerate(f):
 			word2vec[l.replace("\n","")] = word_vecs[i,:]
-	index = 0
+
+	# changed index to 1 in order to use padding correctly ({',': 0} at the moment)
+	index = 1
 	for key, _ in word2vec.items():
 		word2id[key] = index
 		index += 1
