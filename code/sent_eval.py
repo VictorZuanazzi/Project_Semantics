@@ -26,7 +26,7 @@ else:
 
 def create_model(checkpoint_path, model_type, model_params):
 	_, _, _, word2vec, word2id, wordvec_tensor = load_SNLI_datasets(debug_dataset = True)
-	model = NLIModel(model_type, model_params, wordvec_tensor)
+	model = NLIModel(model_type, model_params, wordvec_tensor, id2word={value: key for key, value in word2id.items()})
 	_ = load_model(checkpoint_path, model=model)
 	for param in model.parameters():
 		param.requires_grad = False

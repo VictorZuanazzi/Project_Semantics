@@ -2,7 +2,10 @@ import torch
 import torch.nn as nn
 import numpy as np 
 import sys
+import os
 import math
+
+from allennlp.modules.elmo import Elmo, batch_to_ids
 
 
 class NLIModel(nn.Module):
@@ -12,7 +15,7 @@ class NLIModel(nn.Module):
 	BILSTM = 2
 	BILSTM_MAX = 3
 
-	def __init__(self, model_type, model_params, wordvec_tensor):
+	def __init__(self, model_type, model_params, wordvec_tensor, id2word):
 		super(NLIModel, self).__init__()
 
 		self.embeddings = nn.Embedding(wordvec_tensor.shape[0], wordvec_tensor.shape[1])
@@ -20,15 +23,35 @@ class NLIModel(nn.Module):
 			self.embeddings.weight.data.copy_(torch.from_numpy(wordvec_tensor))
 			self.embeddings.weight.requires_grad = False
 
+		# used for converting word ids to strings for elmo
+		self.id2word = id2word
+
 		self.model_type = model_type
 		self.model_params = model_params
 		self._choose_encoder(model_type, model_params)
 		self.classifier = NLIClassifier(model_params)
 
+		# elmo
+		self.elmo = self.load_elmo()
+
 		if torch.cuda.is_available():
 			self.embeddings = self.embeddings.cuda()
 			self.encoder = self.encoder.cuda()
 			self.classifier = self.classifier.cuda()
+
+			# pass elmo to gpu
+			self.elmo = self.elmo.cuda()
+
+	def load_elmo(self):
+		"""
+		Loads medium ELMo model. The files need to be downloaded from https://allennlp.org/elmo
+		:return: the ELMo model, which embeds each sentence as a learned 512-dim scalar mix of its three layers' states
+		"""
+		options_path = 'elmo/medium/elmo_2x2048_256_2048cnn_1xhighway_options.json'
+		weights_path = 'elmo/medium/elmo_2x2048_256_2048cnn_1xhighway_weights.hdf5'
+		assert os.path.isfile(options_path)
+		assert os.path.isfile(weights_path)
+		return Elmo(options_path, weights_path, 1)
 
 	def _choose_encoder(self, model_type, model_params):
 		if model_type == NLIModel.AVERAGE_WORD_VECS:
@@ -44,7 +67,15 @@ class NLIModel(nn.Module):
 			sys.exit(1)
 
 
-	def forward(self, words_s1, lengths_s1=None, words_s2=None, lengths_s2=None, dummy_input=False, applySoftmax=False):
+	def forward(self, words_s1, lengths_s1=None, words_s2=None, lengths_s2=None,
+				dummy_input=False, applySoftmax=False, elmo_eval=False):
+
+		# Put ELMo in the right mode, since it uses dropout
+		if elmo_eval:
+			self.elmo.eval()
+		else:
+			self.elmo.train()
+
 		# If only one element is given, we assume that the first one must be a tuple of all inputs
 		# Required for e.g. graph creation in tensorboard
 		if lengths_s1 is None:
@@ -59,7 +90,29 @@ class NLIModel(nn.Module):
 
 	def encode_sentence(self, words, lengths, dummy_input=False, debug=False):
 		word_embeds = self.embeddings(words)
-		sent_embeds = self.encoder(word_embeds, lengths, dummy_input=dummy_input, debug=debug)
+
+		# Get sentences as a list of lists, where each list is a tokenized sentence. They are stored in str_words
+		str_words = []
+		for sentence_idx in range(words.size()[0]):
+			sentence = []
+			for word_idx in range(words.size()[1]):
+				w_ix = words[sentence_idx, word_idx].item()
+				if w_ix != 0:
+					sentence.append(self.id2word[w_ix])
+				else:
+					break
+			str_words.append(sentence)
+
+		# Get ELMo embeddings
+		character_ids = batch_to_ids(str_words)
+		if torch.cuda.is_available():
+			character_ids = character_ids.cuda()
+		elmo_embeds = self.elmo(character_ids)['elmo_representations'][0]
+
+		# Combine the two embeddings
+		full_embeds = torch.cat((word_embeds, elmo_embeds), 2)
+
+		sent_embeds = self.encoder(full_embeds, lengths, dummy_input=dummy_input, debug=debug)
 		return sent_embeds
 
 	# TODO: REMOVE FUNCTION
