@@ -26,13 +26,13 @@ class NLIModel(nn.Module):
         self.model_params = model_params
         self._choose_encoder(model_type, model_params)
         self.classifier = NLIClassifier(model_params)
-        # self.elmo = self.load_elmo(elmo_type)
+        self.elmo = self.load_elmo(elmo_type)
 
         if torch.cuda.is_available():
             self.embeddings = self.embeddings.cuda()
             self.encoder = self.encoder.cuda()
             self.classifier = self.classifier.cuda()
-            # self.elmo = self.elmo.cuda()
+            self.elmo = self.elmo.cuda()
 
     def _choose_encoder(self, model_type, model_params):
         if model_type == NLIModel.AVERAGE_WORD_VECS:
@@ -49,10 +49,10 @@ class NLIModel(nn.Module):
 
     def forward(self, words_s1, lengths_s1=None, words_s2=None, lengths_s2=None, dummy_input=False, applySoftmax=False, eval=False):
 
-        # if eval:
-        #     self.elmo.eval()
-        # else:
-        #     self.elmo.train()
+        if eval:
+            self.elmo.eval()
+        else:
+            self.elmo.train()
 
         # If only one element is given, we assume that the first one must be a tuple of all inputs
         # Required for e.g. graph creation in tensorboard
@@ -85,31 +85,31 @@ class NLIModel(nn.Module):
         # Words is a tensor of size (batch_len, sentence_len)
 
         # Get list of sentences as a list of string token lists
-        # str_words = []
-        # for sentence_idx in range(words.size()[0]):
-        #     sentence = []
-        #     for word_idx in range(words.size()[1]):
-        #         w_ix = words[sentence_idx, word_idx].item()
-        #         if w_ix != 0:
-        #             sentence.append(self.id2word[w_ix])
-        #         else:
-        #             break
-        #     str_words.append(sentence)
+        str_words = []
+        for sentence_idx in range(words.size()[0]):
+            sentence = []
+            for word_idx in range(words.size()[1]):
+                w_ix = words[sentence_idx, word_idx].item()
+                if w_ix != 0:
+                    sentence.append(self.id2word[w_ix])
+                else:
+                    break
+            str_words.append(sentence)
 
         # Get word embeddings, which is a tensor of size (batch_len x sentence_len x word_embedding_len)
-        word_embeds = self.embeddings(words)
+        # word_embeds = self.embeddings(words)
 
         # Get ELMo embeddings
-        # character_ids = batch_to_ids(str_words)
-        # if torch.cuda.is_available():
-        #     character_ids = character_ids.cuda()
-        # elmo_embeds = self.elmo(character_ids)['elmo_representations'][0]
+        character_ids = batch_to_ids(str_words)
+        if torch.cuda.is_available():
+            character_ids = character_ids.cuda()
+        elmo_embeds = self.elmo(character_ids)['elmo_representations'][0]
 
         # Combine the two embeddings
         # full_embeds = torch.cat((word_embeds, elmo_embeds), 2)
 
         # Get sentence embeddings, which is a tensor of size (batch_len x sentence_embedding_len)
-        sent_embeds = self.encoder(word_embeds, lengths, dummy_input=dummy_input, debug=debug)
+        sent_embeds = self.encoder(elmo_embeds, lengths, dummy_input=dummy_input, debug=debug)
 
         return sent_embeds
 
