@@ -8,10 +8,12 @@ import json
 import pickle
 import numpy as np
 from glob import glob
+import tqdm
 
-from model2 import NLIModel
+
 from model import MultiTaskEncoder
 from data import DatasetHandler as data 
+from vocab import get_id2word_dict 
 from mutils import load_model, load_model_from_args, load_args, args_to_params, visualize_tSNE, get_transfer_datasets
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -56,7 +58,7 @@ class WIC:
         return u, v
     
     
-    def threshold_evaluator(self,u,v,batch_labels):
+    def threshold_evaluator(self,u,v,batch_labels, best_split=0, val =0):
                 
         u = u.unsqueeze(dim=1)
         v = v.unsqueeze(dim=2)
@@ -64,23 +66,36 @@ class WIC:
 
         min_val = torch.min(cos_sim)
         max_val = torch.max(cos_sim)
+     
+        print("\nMinimum cosin similarity value = {:.4f}".format(min_val.item()))
+        print("Maximum cosin similarity value = {:.4f}\n".format(max_val.item()))
         
-        best_acc = 0
-        best_split = min_val.item()
+        if val==0:  
+            
+            # Getting the best split on training data
+            best_acc = 0
+            for iter in torch.arange(min_val, max_val, step =0.02):
+                preds = (cos_sim>iter).float()
+                correct = (preds == batch_labels.float()).float().sum()
+                acc = correct/len(preds)
+                if acc> best_acc:
+                    best_acc = acc.item()
+                    best_split = iter
+                    print("New best accuracy = {:.4f}, Split = {:.4f}".format(best_acc, best_split))
+            print("="*70 + "\nBest accuracy found = {:.4f}, Best split found = {:.4f}".format(best_acc, best_split)
+                  + "\n"+"="*70)
+            return best_split
         
-        print("\nMinimum cosin similarity value = {}".format(min_val.item()))
-        print("Maximum cosin similarity value = {}\n".format(max_val.item()))
-        
-        for iter in torch.arange(min_val, max_val, step =0.02):
-            preds = (cos_sim>iter).float()
+        elif val==1:
+            # Evaluating on the best split obtained from training
+            print("Best split is: ", best_split.item())
+            preds = (cos_sim>best_split).float()
             correct = (preds == batch_labels.float()).float().sum()
             acc = correct/len(preds)
-            if acc> best_acc:
-                best_acc = acc.item()
-                best_split = iter
-                print("New best accuracy = {:.4f}, Split = {:.4f}".format(best_acc, best_split))
-        print("="*70 + "\nBest accuracy found = {:.4f}, Best split found = {:.4f}".format(best_acc, best_split)
-              + "\n"+"="*70)
+            print("Validation accuracy = ", acc.item()*100)
+            
+        else:
+            print("[!] INVALID CHOICE!! Please enter either 0 or 1 for val argument !!")
     
     
 
@@ -103,11 +118,12 @@ class WIC:
         print("\nNumber of train batches = ", number_batches_train)
         print("Number of val batches = ", number_batches_val)
 
-        preds_list = []
+        
         loss_list = []
         accuracy = []
         dev_accuracy = []
         prev_dev = 0
+        best_dev_acc = 0
 
         for epoch in range(50):
             if l_rate < 1e-6:
@@ -115,6 +131,7 @@ class WIC:
                 break
             
             self.classifier.train()
+            
             for batch_ind in range(number_batches_train):
                 self.classifier.train()
 
@@ -122,11 +139,14 @@ class WIC:
                 embeds, lengths, batch_labels, batch_p1, batch_p2 = train_dataset.get_batch(self.batch_size, loop_dataset=False, 
                                                                                             toTorch=True)
 
-
-                # encode the sentences batch
+                # changing index to account for <S> token added
+                batch_p1 = torch.tensor([indx +1 for indx in batch_p1])
+                batch_p2 = torch.tensor([indx +1 for indx in batch_p2])
+                
+                # Get target word embeddings
                 u, v = self.get_target_embed(embeds,lengths, batch_p1, batch_p2)
 
-
+                # Prepare input for classifier
                 input_features = torch.cat((u,v), dim=1)
 
                 # get predictions
@@ -158,6 +178,10 @@ class WIC:
 
                 embeds, lengths, batch_labels, batch_p1, batch_p2 = val_dataset.get_batch(self.batch_size, loop_dataset=False, 
                                                                                             toTorch=True)
+                
+                batch_p1 = torch.tensor([b+1 for b in batch_p1])
+                batch_p2 = torch.tensor([b+1 for b in batch_p2])
+                
                 u,v = self.get_target_embed(embeds, lengths, batch_p1, batch_p2)
                 input_features = torch.cat((u,v), dim=1)
                 out = self.classifier(input_features)
@@ -165,17 +189,22 @@ class WIC:
                 correct = (output.squeeze() == batch_labels.float()).float().sum()
                 acc = correct/len(output)
                 dev_accuracy.append(acc.item())
-
+                
 
             print("Epoch: {}/50,  Train accuracy = {:.4f}, Train Loss = {:.4f}, Val accuracy = {:.4f}".format(epoch, sum(accuracy)/len(accuracy)*100, sum(loss_list)/len(loss_list), sum(dev_accuracy)/len(dev_accuracy)*100))
             current_dev = sum(dev_accuracy)/len(dev_accuracy)
             if prev_dev > current_dev:
-                l_rate = l_rate*0.25
+                l_rate = l_rate*0.20
                 print("Reduced learning rate to: ", l_rate)
             prev_dev = current_dev
+            
+            if current_dev > best_dev_acc:
+                print("NEW best Dev accuracy!!")
+                best_dev_acc = current_dev
 
-        print("Training Done")
-        
+        print("Training Done!!")
+        print("="*70+"\n"+"Best Validation accuracy = {:.4f}%\n".format(current_dev*100)+"="*70)
+                
         
 
     def WIC_main(self, iteration=None, dataset=None, ret_pred_list=False):
@@ -188,28 +217,62 @@ class WIC:
         train_dataset = self.train_dataset
         val_dataset = self.val_dataset
          
-       
+        dict_id = get_id2word_dict()
         if args.val_type == 'threshold':
             
             print("="*70 + "\n\t\t\tTraining set\n"+ "="*70)
-            embeds, lengths, batch_labels, batch_p1, batch_p2 = train_dataset.get_batch(train_dataset.get_num_examples(), loop_dataset=False, 
-                                                                                            toTorch=True)
+            embeds, lengths, batch_labels, batch_p1, batch_p2 = train_dataset.get_batch(train_dataset.get_num_examples(), loop_dataset=False, toTorch=True)
+            # changing index to account for <S> token added
+            batch_p1 = torch.tensor([b+1 for b in batch_p1])
+            batch_p2 = torch.tensor([b+1 for b in batch_p2])
+            
                 
             print("\n---------------Getting Target Embeddings--------------")
             # encode the sentences batch
             u, v = self.get_target_embed(embeds,lengths, batch_p1, batch_p2)
+            
+#             idxs = []           
+#             for i in range(u.size(0)):
+#                 if torch.max(norm[i]):
+#                     print(i)
+#                     idxs.append(i)
+            
+            
+#             errors1 = [dict_id[word.item()] for id in idxs for word in embeds[0][id]]
+#             print(errors1)
+            
+#             errors2 = [dict_id[word.item()] for id in idxs for word in embeds[1][id]]
+#             print(errors2)
+                        
+            # Normalizing the embeddings for stable cosin similarity calculation
+            norm = u.norm(p=2, dim=1, keepdim=True).detach()
+            u = u.div(norm)
+            
+            norm = v.norm(p=2, dim=1, keepdim=True).detach()
+            v = v.div(norm)
+
             print("\n---------------Target Embeddings retrieved--------------")
-            self.threshold_evaluator(u,v,batch_labels)
+            best_split = self.threshold_evaluator(u,v,batch_labels, val = 0)
             
             print("="*70 + "\n\t\t\tValidation set\n"+ "="*70)
             embeds, lengths, batch_labels, batch_p1, batch_p2 = val_dataset.get_batch(train_dataset.get_num_examples(), loop_dataset=False, 
                                                                                             toTorch=True)
+            # changing index to account for <S> token added
+            batch_p1 = torch.tensor([b+1 for b in batch_p1])
+            batch_p2 = torch.tensor([b+1 for b in batch_p2])
                 
             print("\n---------------Getting Target Embeddings--------------")
             # encode the sentences batch
             u, v = self.get_target_embed(embeds,lengths, batch_p1, batch_p2)
+            
+            # Normalizing the embeddings for stable cosin similarity calculation
+            norm = u.norm(p=2, dim=1, keepdim=True).detach()
+            u = u.div(norm)
+            
+            norm = v.norm(p=2, dim=1, keepdim=True).detach()
+            v = v.div(norm)
             print("\n---------------Target Embeddings retrieved--------------")
-            self.threshold_evaluator(u,v,batch_labels)
+            self.threshold_evaluator(u,v,batch_labels, best_split, val = 1)
             
             
         
@@ -222,11 +285,11 @@ class WIC:
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint_path", help="Folder(name) where checkpoints are saved. If it is a regex expression, all experiments are evaluated", type=str, default = './checkpoints')
+    parser.add_argument("--checkpoint_path", help="Folder(name) where checkpoints are saved. If it is a regex expression, all experiments are evaluated", type=str, default = './checkpoints/mnli_vu_pos_12')
     parser.add_argument("--overwrite", help="Whether evaluations should be re-run if there already exists an evaluation file.", action="store_true")
     parser.add_argument("--visualize_embeddings", help="Whether the embeddings of the model should be visualized or not", action="store_true")
-    parser.add_argument("--val_type", help="Whether to run threshold or MLP eval (threshold or mlp)", type = str, default = 'mlp')
-    parser.add_argument("--lr", help="Learning rate (for MLP evaluation)", type = float, default = 2e-3)
+    parser.add_argument("--val_type", help="Whether to run threshold or MLP eval (--threshold-- or --mlp--)", type = str, default = 'mlp')
+    parser.add_argument("--lr", help="Learning rate (for MLP evaluation)", type = float, default = 1e-3)
     args = parser.parse_known_args()[0]
     model_list = sorted(glob(args.checkpoint_path))
 
