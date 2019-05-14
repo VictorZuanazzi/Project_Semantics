@@ -58,6 +58,11 @@ class DatasetHandler:
 		return dataset_list
 
 	@staticmethod
+	def load_id2word_dict():
+		_, word2id_dict, _ = load_word2vec_from_file()
+		return {v: k for k, v in word2id_dict.items()}
+
+	@staticmethod
 	def load_SNLI_datasets(debug_dataset=False):
 		if DatasetHandler.SNLI_DATASETS is None:
 			DatasetHandler.SNLI_DATASETS = DatasetHandler._load_all_type_datasets(SNLIDataset, debug_dataset=debug_dataset)
@@ -723,7 +728,7 @@ class WiCDataset(DatasetTemplate):
 		#converts batch_pX to torch or numpy
 		batch_p1 = DatasetTemplate.object_to_Tensors(batch_p1, toTorch=toTorch)
 		batch_p2 = DatasetTemplate.object_to_Tensors(batch_p2, toTorch=toTorch)
-		
+
 		#get the embeds, lengtghs and labels
 		embeds, lengths, batch_labels = DatasetTemplate.sents_to_Tensors([batch_s1, batch_s2],
 												batch_labels=batch_labels, 

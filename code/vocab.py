@@ -23,6 +23,8 @@ def load_word2vec_from_file(word_file="small_glove_words.txt", numpy_file="small
 		with open(word_file, "r", encoding = 'utf-8') as f:
 			for i, l in enumerate(f):
 				word2vec[l.replace("\n","")] = word_vecs[i,:]
+
+		# fixed indexing for elmo
 		index = 0
 		for key, _ in word2vec.items():
 			word2id[key] = index
