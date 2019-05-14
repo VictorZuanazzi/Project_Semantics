@@ -433,6 +433,7 @@ def create_StackedLSTM_from_params(model_params, bidirectional=False):
 	projection_dropout = get_param_val(model_params, "proj_dropout", 0.0)
 	input_dropout = get_param_val(model_params, "input_dropout", 0.0)
 	skip_connections = not get_param_val(model_params, "no_skip_connections", False)
+	class_layers = get_param_val(model_params, "use_class_layers", False)
 
 	return StackedLSTMChain(
 			input_size=input_size,
@@ -441,7 +442,8 @@ def create_StackedLSTM_from_params(model_params, bidirectional=False):
 			proj_dropout=projection_dropout,
 			input_dropout=input_dropout,
 			bidirectional=bidirectional,
-			skip_connections=skip_connections
+			skip_connections=skip_connections,
+			class_layers=class_layers
 		)
 
 
@@ -457,7 +459,7 @@ class StackedLSTMChain(nn.Module):
 			tasks are shared.
 	"""
 
-	def __init__(self, input_size, hidden_dims, proj_dims=None, proj_dropout=0.0, input_dropout=0.0, bidirectional=False, skip_connections=True):
+	def __init__(self, input_size, hidden_dims, proj_dims=None, proj_dropout=0.0, input_dropout=0.0, bidirectional=False, skip_connections=True, class_layers=False):
 		super(StackedLSTMChain, self).__init__()
 		if not isinstance(hidden_dims, list):
 			hidden_dims = list(hidden_dims)
@@ -468,6 +470,7 @@ class StackedLSTMChain(nn.Module):
 		self.hidden_dims = hidden_dims
 		self.proj_dims = proj_dims
 		self.proj_dropout = proj_dropout
+		self.use_class_layers = class_layers
 		self.input_dropout = input_dropout
 		self.bidirectional = bidirectional
 		self.skip_connections = skip_connections
@@ -476,22 +479,27 @@ class StackedLSTMChain(nn.Module):
 	def _build_network(self):
 		self.lstm_chains = list()
 		self.proj_layers = list()
+		self.class_layers = list()
 		self.input_dropout = RNNDropout(self.input_dropout)
 		for n in range(len(self.hidden_dims)):
 			if n == 0:
 				inp_dim = self.input_size
 			else:
 				inp_dim = self.hidden_dims[n-1] if not self.skip_connections else (self.input_size + sum(self.hidden_dims[:n]))
+				if self.use_class_layers:
+					self.class_layers.append(self._get_projection_layer(self.hidden_dims[n-1], self.hidden_dims[n-1], input_dropout=self.proj_dropout))
 				if self.proj_dims is not None:
-					self.proj_layers.append(self._get_projection_layer(inp_dim, self.proj_dims[n-1], self.proj_dropout))
+					self.proj_layers.append(self._get_projection_layer(inp_dim, self.proj_dims[n-1], output_dropout=self.proj_dropout))
 					inp_dim = self.proj_dims[n-1]
 			n_chain = PyTorchLSTMChain(inp_dim, self.hidden_dims[n], per_direction=False, bidirectional=self.bidirectional)
 			self.lstm_chains.append(n_chain)
+		self.class_layers = nn.ModuleList(self.class_layers)
 		self.proj_layers = nn.ModuleList(self.proj_layers)
 		self.lstm_chains = nn.ModuleList(self.lstm_chains)
 
-	def _get_projection_layer(self, input_dim, output_dim, output_dropout):
+	def _get_projection_layer(self, input_dim, output_dim, input_dropout=0.0, output_dropout=0.0):
 		return nn.Sequential(
+				RNNDropout(input_dropout),
 				nn.Linear(input_dim, output_dim),
 				nn.ReLU(),
 				RNNDropout(output_dropout)
@@ -499,7 +507,6 @@ class StackedLSTMChain(nn.Module):
 
 	def layer_size(self, layer):
 		return self.hidden_dims[layer]
-
 
 	def forward(self, word_embeds, lengths, max_layer=-1):
 		final_states = list()
@@ -515,6 +522,8 @@ class StackedLSTMChain(nn.Module):
 			if layer_index > 0 and len(self.proj_layers) > 0:
 				stacked_inputs = self.proj_layers[layer_index-1](stacked_inputs)
 			layer_states, layer_outputs = self.lstm_chains[layer_index](stacked_inputs, lengths)
+			if layer_index > 0 and len(self.class_layers) > 0 and layer_index < num_layers-1:
+				layer_outputs = self.class_layers[layer_index-1](layer_outputs)
 			final_states.append(layer_states)
 			outputs.append(layer_outputs)
 			input_stack.append(self.input_dropout(layer_outputs))

@@ -115,7 +115,8 @@ def args_to_params(args):
 		"hidden_dims": list_to_dims(args.hidden_dims),
 		"proj_dims": list_to_dims(args.proj_dims),
 		"proj_dropout": args.proj_dropout,
-		"no_skip_connections": args.no_skip_connections
+		"no_skip_connections": args.no_skip_connections,
+		"use_class_layers": args.use_class_layers
 	}
 	if args.model == MultiTaskEncoder.AVERAGE_WORD_VECS:
 		model_params["embed_sent_dim"] = 300

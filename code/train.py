@@ -249,6 +249,7 @@ if __name__ == '__main__':
 	parser.add_argument("--load_config", help="Tries to find parameter file in checkpoint path, and loads all given parameters from there", action="store_true")
 	# Stacked LSTM encoder parameters
 	parser.add_argument("--no_skip_connections", help="Whether to use a feed-forward LSTM stack or apply skip connections", action="store_true")
+	parser.add_argument("--use_class_layers", help="Whether to use a feed-forward LSTM stack or apply skip connections", action="store_true")
 	parser.add_argument("--hidden_dims", help="Hidden dimensionality of LSTMs. List separated by \",\"", type=str, default="")
 	parser.add_argument("--proj_dims", help="Projection dimensionality between LSTMs. List separated by \",\"", type=str, default="")
 	parser.add_argument("--proj_dropout", help="Dropout applied on the projected output.", type=float, default=0.0)
