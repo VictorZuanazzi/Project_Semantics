@@ -259,6 +259,7 @@ if __name__ == '__main__':
 	parser.add_argument("--hidden_dims", help="Hidden dimensionality of LSTMs. List separated by \",\"", type=str, default="")
 	parser.add_argument("--proj_dims", help="Projection dimensionality between LSTMs. List separated by \",\"", type=str, default="")
 	parser.add_argument("--proj_dropout", help="Dropout applied on the projected output.", type=float, default=0.0)
+	parser.add_argument("--input_dropout", help="Dropout applied on the input to every LSTM in the stack.", type=float, default=0.0)
 	# General model parameters
 	parser.add_argument("--embed_dim", help="Embedding dimensionality of sentence", type=int, default=2048)
 	parser.add_argument("--model", help="Which encoder model to use. 0: BOW, 1: LSTM, 2: Bi-LSTM, 3: Bi-LSTM with max pooling", type=int, default=0)

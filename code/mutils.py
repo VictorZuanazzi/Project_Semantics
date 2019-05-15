@@ -115,6 +115,7 @@ def args_to_params(args):
 		"hidden_dims": list_to_dims(args.hidden_dims),
 		"proj_dims": list_to_dims(args.proj_dims),
 		"proj_dropout": args.proj_dropout,
+		"input_dropout": args.input_dropout,
 		"no_skip_connections": args.no_skip_connections,
 		"use_class_layers": args.use_class_layers
 	}
