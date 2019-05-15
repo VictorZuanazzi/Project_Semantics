@@ -236,8 +236,8 @@ class MultiTaskSampler:
 			acc, detailed_acc = t.eval()
 			print("Task " + t.name + ": %4.2f%%" % (acc*100.0))
 			reached_new_opt[t.name] = (acc > self.highest_eval_accs[t.name])
-			if acc > self.highest_eval_accs[t.name]:
-				self.highest_eval_accs[t.name] = acc
+			if t.eval_metric(detailed_acc) > self.highest_eval_accs[t.name]:
+				self.highest_eval_accs[t.name] = t.eval_metric(detailed_acc)
 				print("Highest accuracy so far for task " + t.name)
 			accuracy_dict[t.name] = detailed_acc
 		return accuracy_dict, reached_new_opt

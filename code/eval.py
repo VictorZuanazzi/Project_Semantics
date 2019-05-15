@@ -40,6 +40,9 @@ class MultiTaskEval:
 
 		evaluation_dict = load_model(checkpoint_path)["evaluation_dict"]
 		task_evaluation = evaluation_dict[max(evaluation_dict.keys())][task_name]
+		if "predictions" not in task_evaluation or "labels" not in task_evaluation:
+			print("[!] WARNING: No predictions and/or labels saved")
+			return
 		predictions = task_evaluation["predictions"]
 		labels = task_evaluation["labels"]
 
@@ -82,7 +85,7 @@ class MultiTaskEval:
 
 		final_dict = load_model(checkpoint_path)
 		best_acc, best_iter = -1, -1
-		
+
 		for eval_iter, eval_dict in final_dict["evaluation_dict"].items():
 			if main_task.eval_metric(eval_dict[main_task.name]) > best_acc and os.path.isfile(iter_to_file(eval_iter)):
 				best_iter = eval_iter

@@ -43,6 +43,7 @@ class MultiTaskTrain:
 		parameters_to_optimize = list(self.model.parameters())
 		for t in self.tasks:
 			parameters_to_optimize += list(t.get_parameters())
+		parameters_to_optimize = [p for p in parameters_to_optimize if p.requires_grad]
 		return parameters_to_optimize
 
 
@@ -77,9 +78,9 @@ class MultiTaskTrain:
 
 		# Setup training parameters
 		parameters_to_optimize = self._get_all_parameters()
-		print("Model parameters: " + str([name for name, p in self.model.named_parameters()]))
+		print("Trainable model parameters: " + str([name for name, p in self.model.named_parameters() if p.requires_grad]))
 		for t in self.tasks:
-			print("Task " + t.name + " parameters: " + str([name for name, p in t.classifier.named_parameters()]))
+			print("Trainable task " + t.name + " parameters: " + str([name for name, p in t.classifier.named_parameters() if p.requires_grad]))
 		checkpoint_dict = self.load_recent_model()
 		start_iter = get_dict_val(checkpoint_dict, "iteration", 0)
 		evaluation_dict = get_dict_val(checkpoint_dict, "evaluation_dict", dict())
@@ -111,9 +112,13 @@ class MultiTaskTrain:
 		def export_weight_parameters(iteration):
 			# Export weight distributions
 			for name, param in self.model.named_parameters():
+				if not param.requires_grad:
+					continue
 				writer.add_histogram(name, param.data.view(-1), global_step=iteration)
 			for t in self.tasks:
 				for name, param in t.classifier.named_parameters():
+					if not param.requires_grad:
+						continue
 					writer.add_histogram(t.name+"/"+name, param.data.view(-1), global_step=iteration)
 		
 		time_per_step = np.zeros((2,), dtype=np.float32)
@@ -213,6 +218,7 @@ class MultiTaskTrain:
 		model_dict = self.model.state_dict()
 		if not save_embeddings:
 			model_dict = {k:v for k,v in model_dict.items() if (not k.startswith("embeddings") or v.requires_grad)}
+		model_dict = {k:v for k,v in model_dict.items() if v.requires_grad}
 		checkpoint_dict = {
 			'model_state_dict': model_dict
 		}
@@ -258,6 +264,10 @@ if __name__ == '__main__':
 	parser.add_argument("--model", help="Which encoder model to use. 0: BOW, 1: LSTM, 2: Bi-LSTM, 3: Bi-LSTM with max pooling", type=int, default=0)
 	parser.add_argument("--embed_dropout", help="Dropout applied on the input embeddings", type=float, default=0.0)
 	parser.add_argument("--finetune_embeds", help="Whether to finetune the embeddings or not", action="store_true")
+	# ELMo 
+	parser.add_argument("--elmo_small", help="Use ELMo small (256 dimensions)", action="store_true")
+	parser.add_argument("--elmo_medium", help="Use ELMo medium (512 dimensions)", action="store_true")
+	parser.add_argument("--elmo_original", help="Use ELMo original (1024 dimensions)", action="store_true")
 	# Classifier parameters
 	parser.add_argument("--fc_dim", help="Number of hidden units in fully connected layers (classifier)", type=int, default=512)
 	parser.add_argument("--fc_dropout", help="Dropout probability in FC classifier", type=float, default=0.0)

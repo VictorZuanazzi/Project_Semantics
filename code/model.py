@@ -2,7 +2,14 @@ import torch
 import torch.nn as nn
 import numpy as np 
 import sys
+import os
 import math
+import time
+
+from vocab import get_id2word_dict
+
+from allennlp.modules.elmo import Elmo, batch_to_ids
+
 
 def get_device():
 	return torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -15,6 +22,11 @@ class MultiTaskEncoder(nn.Module):
 	BILSTM = 2
 	BILSTM_MAX = 3
 
+	ELMO_SMALL = 'small'
+	ELMO_MEDIUM = 'medium'
+	ELMO_ORIGINAL = 'original'
+
+
 	def __init__(self, model_type, model_params, wordvec_tensor):
 		super(MultiTaskEncoder, self).__init__()
 
@@ -23,6 +35,9 @@ class MultiTaskEncoder(nn.Module):
 			self.embeddings.weight.data.copy_(torch.from_numpy(wordvec_tensor))
 			self.embeddings.weight.requires_grad = get_param_val(model_params, "finetune_embeds", False)
 		self.embed_dropout = RNNDropout(get_param_val(model_params, "embed_dropout", 0.0))
+		elmo_type = get_param_val(model_params, "elmo", None)
+		self.elmo = MultiTaskEncoder.load_elmo(elmo_type) if elmo_type is not None else None
+		self.id2word = get_id2word_dict()
 
 		self.model_type = model_type
 		self.model_params = model_params
@@ -30,8 +45,10 @@ class MultiTaskEncoder(nn.Module):
 
 		self.embeddings = self.embeddings.to(get_device())
 		self.encoder = self.encoder.to(get_device())
+		if self.elmo is not None:
+			self.elmo = self.elmo.to(get_device())
 
-		self.apply(ESIM_Head._init_esim_weights)
+		# self.apply(ESIM_Head._init_esim_weights)
 		print("Encoder: \n" + str(self.encoder))
 
 
@@ -55,6 +72,9 @@ class MultiTaskEncoder(nn.Module):
 
 	def encode_sentence(self, words, lengths, word_level=False, debug=False, layer=-1):
 		word_embeds = self.embeddings(words)
+		if self.elmo is not None:
+			elmo_embeds = self.get_elmo_embeds(words, lengths)
+			word_embeds = torch.cat([word_embeds, elmo_embeds], dim=-1)
 		word_embeds = self.embed_dropout(word_embeds)
 		sent_embeds = self.encoder(word_embeds, lengths, word_level=word_level, max_layer=layer)
 		if not word_level:
@@ -64,8 +84,71 @@ class MultiTaskEncoder(nn.Module):
 		return sent_embeds
 
 
+	def get_elmo_embeds(self, batch, lengths):
+		# start_time = time.time()
+
+		batch = batch.data.cpu().numpy()
+		lengths = lengths.data.cpu().numpy()
+
+		elmo_batch = list()
+		for sentence_idx in range(batch.shape[0]):
+			sentence = []
+			for word_idx in range(lengths[sentence_idx]):
+				str_word = self.id2word[batch[sentence_idx, word_idx]]
+				if str_word == '<s>':
+					str_word = '<S>'
+				elif str_word == '</s>':
+					str_word = '</S>'
+				sentence.append(str_word)
+
+			elmo_batch.append(sentence)
+
+		character_ids = batch_to_ids(elmo_batch)
+		if torch.cuda.is_available():
+			character_ids = character_ids.cuda()
+		# id_time = time.time()
+		embeds = self.elmo(character_ids)['elmo_representations'][0]
+		# needed_time = (time.time() - start_time)
+		# print("Time ELMo: %5.4fs (%4.2f%% for character batching)" % (needed_time, (id_time - start_time)*100.0/needed_time))
+		return embeds
+
+
 	def get_layer_size(self, layer):
 		return self.encoder.lstm_stack.layer_size(layer)
+
+
+	@staticmethod
+	def get_elmo_size(elmo_type):
+		if elmo_type == MultiTaskEncoder.ELMO_SMALL:
+			return 256
+		elif elmo_type == MultiTaskEncoder.ELMO_MEDIUM:
+			return 512
+		elif elmo_type == MultiTaskEncoder.ELMO_ORIGINAL:
+			return 1024
+		elif elmo_type is None:
+			return 0
+		else:
+			print("[!] WARNING: Unknown elmo type: " + str(elmo_type))
+			return 0
+
+
+	@staticmethod
+	def load_elmo(elmo_type):
+		if elmo_type not in [MultiTaskEncoder.ELMO_SMALL, MultiTaskEncoder.ELMO_MEDIUM, MultiTaskEncoder.ELMO_ORIGINAL]:
+			print("[!] WARNING: Unsupported ELMo size. Reverting to medium size")
+			elmo_type = MultiTaskEncoder.ELMO_MEDIUM
+		if elmo_type == MultiTaskEncoder.ELMO_SMALL:
+			options_file = '../elmo/' + elmo_type + '/elmo_2x1024_128_2048cnn_1xhighway_options.json'
+			weight_file = '../elmo/' + elmo_type + '/elmo_2x1024_128_2048cnn_1xhighway_weights.hdf5'
+		elif elmo_type == MultiTaskEncoder.ELMO_MEDIUM:
+			options_file = '../elmo/' + elmo_type + '/elmo_2x2048_256_2048cnn_1xhighway_options.json'
+			weight_file = '../elmo/' + elmo_type + '/elmo_2x2048_256_2048cnn_1xhighway_weights.hdf5'
+		elif elmo_type == MultiTaskEncoder.ELMO_ORIGINAL:
+			options_file = '../elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_options.json'
+			weight_file = '../elmo/' + elmo_type + '/elmo_2x4096_512_2048cnn_2xhighway_5.5B_weights.hdf5'
+		assert os.path.isfile(options_file), "ELMo options file could not be found at: " + options_file
+		assert os.path.isfile(weight_file), "ELMo weight file could not be found at: " + weight_file
+		return Elmo(options_file, weight_file, 1)
 
 
 ####################################
@@ -506,7 +589,7 @@ class StackedLSTMChain(nn.Module):
 			)
 
 	def layer_size(self, layer):
-		return self.hidden_dims[layer]
+		return self.hidden_dims[layer] if layer < len(self.hidden_dims) else self.hidden_dims[-1]
 
 	def forward(self, word_embeds, lengths, max_layer=-1):
 		final_states = list()

@@ -120,6 +120,16 @@ def args_to_params(args):
 	}
 	if args.model == MultiTaskEncoder.AVERAGE_WORD_VECS:
 		model_params["embed_sent_dim"] = 300
+	if hasattr(args, "elmo_original"):
+		if args.elmo_original:
+			model_params["elmo"] = MultiTaskEncoder.ELMO_ORIGINAL
+		elif args.elmo_medium:
+			model_params["elmo"] = MultiTaskEncoder.ELMO_MEDIUM
+		elif args.elmo_small:
+			model_params["elmo"] = MultiTaskEncoder.ELMO_SMALL
+		else:
+			model_params["elmo"] = None 
+		model_params["embed_word_dim"] += MultiTaskEncoder.get_elmo_size(model_params["elmo"])
 
 	def add_head(name, string_encoding):
 		model_params[name + "_head"] = dict()
