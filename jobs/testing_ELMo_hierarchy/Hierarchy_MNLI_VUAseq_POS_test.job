@@ -28,6 +28,7 @@ mkdir -p $EXPDIR/code
 rsync -a $HOME/Project_Semantics/code/*.py $EXPDIR/code/
 rsync -a $HOME/Project_Semantics/code/small_glove_* $EXPDIR/code/
 rsync -a $HOME/Project_Semantics/data $EXPDIR/
+rsync -a $HOME/Project_Semantics/elmo $EXPDIR/
 
 # Go to scratch and execute training script
 cd $EXPDIR/code
