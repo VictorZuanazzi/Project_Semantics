@@ -1,10 +1,10 @@
 #!/bin/bash
 
-#SBATCH --job-name=InferSent_woELMo
+#SBATCH --job-name=Semantics_Template
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=3
+#SBATCH --cpus-per-task=4
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=16:00:00
+#SBATCH --time=04:00:00
 #SBATCH --mem=60000M
 #SBATCH --partition=gpu_shared_course
 #SBATCH --gres=gpu:1
@@ -20,7 +20,7 @@ export LD_LIBRARY_PATH=/hpc/eb/Debian9/cuDNN/7.1-CUDA-8.0.44-GCCcore-5.4.0/lib64
 
 EXPDIR=$TMPDIR
 # CHANGE CHECKPOINT DIRECTORY TO TASK NAME!
-CHECKPOINT_PATH=$HOME/Project_Semantics/code/checkpoints/InferSent_woELMo
+CHECKPOINT_PATH=$HOME/Project_Semantics/code/checkpoints/template
 # Create new empty directories for copying
 mkdir -p $EXPDIR
 mkdir -p $EXPDIR/code
@@ -28,20 +28,21 @@ mkdir -p $EXPDIR/code
 rsync -a $HOME/Project_Semantics/code/*.py $EXPDIR/code/
 rsync -a $HOME/Project_Semantics/code/small_glove_* $EXPDIR/code/
 rsync -a $HOME/Project_Semantics/data $EXPDIR/
-rsync -a $HOME/Project_Semantics/elmo $EXPDIR/
 
 # Go to scratch and execute training script
 cd $EXPDIR/code
 srun python3 -u train.py --cluster \
 						 --model 3 \
-						 --embed_dim 4096 \
-						 --task_MNLI 1.0 \
-						 --task_MNLI_head model=0,fc_dropout=0.5,use_bias,fc_layers=1,fc_nonlinear \
+						 --embed_dim 600 \
+						 --task_SNLI 0.9 \
+						 --task_SNLI_head model=1,fc_dropout=0.5,use_bias \
+						 --task_VUAseq 0.1 \
+						 --task_VUAseq_head fc_dropout=0.5,fc_dim=128,fc_nonlinear,fc_num_layers=1 \
 						 --batch_size 64 \
 						 --optimizer 1 \
-						 --learning_rate 0.0002 \
+						 --learning_rate 0.0004 \
 						 --weight_decay 0.0 \
-						 --lr_decay_step 120000 \
+						 --lr_decay_step 100000 \
 						 --lr_decay 0.2 \
 						 --max_iterations 150000 \
 						 --seed 42 \
