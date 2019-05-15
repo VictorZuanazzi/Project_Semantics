@@ -1,10 +1,10 @@
 #!/bin/bash
 
-#SBATCH --job-name=InferSent_ELMo_seed_44
+#SBATCH --job-name=InferSent_VUAseq_ELMo_seed_44
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=3
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=16:00:00
+#SBATCH --time=20:00:00
 #SBATCH --mem=60000M
 #SBATCH --partition=gpu_shared_course
 #SBATCH --gres=gpu:1
@@ -20,7 +20,7 @@ export LD_LIBRARY_PATH=/hpc/eb/Debian9/cuDNN/7.1-CUDA-8.0.44-GCCcore-5.4.0/lib64
 
 EXPDIR=$TMPDIR
 # CHANGE CHECKPOINT DIRECTORY TO TASK NAME!
-CHECKPOINT_PATH=$HOME/Project_Semantics/code/checkpoints/InferSent_ELMo_seed_44
+CHECKPOINT_PATH=$HOME/Project_Semantics/code/checkpoints/InferSent_VUAseq_ELMo_seed_44
 # Create new empty directories for copying
 mkdir -p $EXPDIR
 mkdir -p $EXPDIR/code
@@ -37,15 +37,18 @@ srun python3 -u train.py --cluster \
 						 --elmo_medium \
 						 --embed_dropout 0.2 \
 						 --embed_dim 4096 \
-						 --task_MNLI 1.0 \
+						 --task_MNLI 0.85 \
 						 --task_MNLI_head model=0,fc_dropout=0.5,use_bias,fc_layers=1,fc_nonlinear \
+						 --task_VUAseq 0.15 \
+						 --task_VUAseq_head fc_nonlinear,fc_dropout=0.3,fc_dim=128,fc_num_layers=1 \
+						 --multi_batchwise \
 						 --batch_size 64 \
 						 --optimizer 1 \
 						 --learning_rate 0.0002 \
 						 --weight_decay 0.0 \
-						 --lr_decay_step 120000 \
+						 --lr_decay_step 150000 \
 						 --lr_decay 0.2 \
-						 --max_iterations 150000 \
+						 --max_iterations 200000 \
 						 --seed 44 \
 						 --tensorboard \
 						 --restart \

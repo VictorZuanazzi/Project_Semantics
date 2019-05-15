@@ -41,9 +41,9 @@ srun python3 -u train.py --cluster \
 						 --task_MNLI_head model=0,fc_dropout=0.5,use_bias,fc_layers=1,fc_nonlinear \
 						 --batch_size 64 \
 						 --optimizer 1 \
-						 --learning_rate 0.0001 \
+						 --learning_rate 0.0002 \
 						 --weight_decay 0.0 \
-						 --lr_decay_step 100000 \
+						 --lr_decay_step 120000 \
 						 --lr_decay 0.2 \
 						 --max_iterations 150000 \
 						 --seed 45 \
