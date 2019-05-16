@@ -1,0 +1,62 @@
+#!/bin/bash
+
+#SBATCH --job-name=Hierarchy_MNLI_VUAseq_seed_45
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=3
+#SBATCH --ntasks-per-node=1
+#SBATCH --time=20:00:00
+#SBATCH --mem=60000M
+#SBATCH --partition=gpu_shared_course
+#SBATCH --gres=gpu:1
+
+module purge
+module load eb
+
+# Load necessary modules
+module load Python/3.6.3-foss-2017b
+module load cuDNN/7.0.5-CUDA-9.0.176
+module load NCCL/2.0.5-CUDA-9.0.176
+export LD_LIBRARY_PATH=/hpc/eb/Debian9/cuDNN/7.1-CUDA-8.0.44-GCCcore-5.4.0/lib64:$LD_LIBRARY_PATH
+
+EXPDIR=$TMPDIR
+# CHANGE CHECKPOINT DIRECTORY TO TASK NAME!
+CHECKPOINT_PATH=$HOME/Project_Semantics/code/checkpoints/Hierarchy_MNLI_VUAseq_seed_45
+# Create new empty directories for copying
+mkdir -p $EXPDIR
+mkdir -p $EXPDIR/code
+# Copy code, glove and datasets from home directory to scratch. Add extra statements if necessary
+rsync -a $HOME/Project_Semantics/code/*.py $EXPDIR/code/
+rsync -a $HOME/Project_Semantics/code/small_glove_* $EXPDIR/code/
+rsync -a $HOME/Project_Semantics/data $EXPDIR/
+rsync -a $HOME/Project_Semantics/elmo $EXPDIR/
+
+# Go to scratch and execute training script
+cd $EXPDIR/code
+srun python3 -u train.py --cluster \
+						 --model 3 \
+						 --elmo_medium \
+						 --embed_dropout 0.3 \
+						 --input_dropout 0.3 \
+						 --embed_dim 600 \
+						 --hidden_dims 300,300 \
+						 --task_MNLI 0.85 \
+						 --task_MNLI_head model=1,fc_dropout=0.5,use_bias \
+						 --task_VUAseq 0.15 \
+						 --task_VUAseq_head fc_dropout=0.3,fc_dim=128,fc_num_layers=0 \
+						 --multi_batchwise \
+						 --batch_size 64 \
+						 --optimizer 1 \
+						 --learning_rate 0.0004 \
+						 --weight_decay 0.0 \
+						 --lr_decay_step 150000 \
+						 --lr_decay 0.2 \
+						 --max_iterations 200000 \
+						 --seed 45 \
+						 --tensorboard \
+						 --checkpoint_path $CHECKPOINT_PATH
+
+# If checkpoints created on scratch, copy them into home directory
+# rsync -av checkpoints/* $HOME/Project_Semantics/code/checkpoints/
+
+# Go home after the job is done
+cd $HOME
