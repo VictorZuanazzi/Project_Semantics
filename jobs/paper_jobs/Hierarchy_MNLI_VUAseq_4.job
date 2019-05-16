@@ -42,7 +42,7 @@ srun python3 -u train.py --cluster \
 						 --task_MNLI 0.85 \
 						 --task_MNLI_head model=1,fc_dropout=0.5,use_bias \
 						 --task_VUAseq 0.15 \
-						 --task_VUAseq_head fc_dropout=0.3,fc_dim=128,fc_num_layers=0 \
+						 --task_VUAseq_head fc_dropout=0.3,fc_dim=128,fc_num_layers=1,fc_nonlinear \
 						 --multi_batchwise \
 						 --batch_size 64 \
 						 --optimizer 1 \
