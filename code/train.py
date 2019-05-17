@@ -218,7 +218,7 @@ class MultiTaskTrain:
 		model_dict = self.model.state_dict()
 		if not save_embeddings:
 			model_dict = {k:v for k,v in model_dict.items() if (not k.startswith("embeddings") or v.requires_grad)}
-		model_dict = {k:v for k,v in model_dict.items() if v.requires_grad}
+		
 		checkpoint_dict = {
 			'model_state_dict': model_dict
 		}
