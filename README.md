@@ -3,11 +3,11 @@
 Visualization of the overall approach
 
 <p align="center">
-  <img src="report/figures/approach_visu.png" width="300" title="Overview of joint multitask training">
+  <img src="report/figures/approach_visu.png" width="400" title="Overview of joint multitask training">
 </p>
 
 <p align="center">
-  <img src="report/figures/hierarchical_network.png" width="300" title="Overview of joint multitask training">
+  <img src="report/figures/hierarchical_network.png" width="450" title="Overview of joint multitask training">
 </p>
 
 # Code basis
