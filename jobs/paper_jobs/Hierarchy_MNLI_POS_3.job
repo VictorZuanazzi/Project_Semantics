@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=3
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=20:00:00
+#SBATCH --time=48:00:00
 #SBATCH --mem=60000M
 #SBATCH --partition=gpu_shared_course
 #SBATCH --gres=gpu:1
@@ -53,6 +53,7 @@ srun python3 -u train.py --cluster \
 						 --max_iterations 200000 \
 						 --seed 44 \
 						 --tensorboard \
+						 --restart \
 						 --checkpoint_path $CHECKPOINT_PATH
 
 # If checkpoints created on scratch, copy them into home directory

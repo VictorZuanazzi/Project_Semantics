@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=Hierarchy_MNLI_VUAseq_seed_45
+#SBATCH --job-name=Hierarchy_MNLI_VUAseq_seed_50
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=3
 #SBATCH --ntasks-per-node=1
@@ -20,7 +20,7 @@ export LD_LIBRARY_PATH=/hpc/eb/Debian9/cuDNN/7.1-CUDA-8.0.44-GCCcore-5.4.0/lib64
 
 EXPDIR=$TMPDIR
 # CHANGE CHECKPOINT DIRECTORY TO TASK NAME!
-CHECKPOINT_PATH=$HOME/Project_Semantics/code/checkpoints/Hierarchy_MNLI_VUAseq_seed_45
+CHECKPOINT_PATH=$HOME/Project_Semantics/code/checkpoints/Hierarchy_MNLI_VUAseq_seed_50
 # Create new empty directories for copying
 mkdir -p $EXPDIR
 mkdir -p $EXPDIR/code
@@ -51,7 +51,7 @@ srun python3 -u train.py --cluster \
 						 --lr_decay_step 150000 \
 						 --lr_decay 0.2 \
 						 --max_iterations 200000 \
-						 --seed 45 \
+						 --seed 50 \
 						 --tensorboard \
 						 --restart \
 						 --checkpoint_path $CHECKPOINT_PATH
